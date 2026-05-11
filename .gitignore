@@ -1,0 +1,135 @@
+# ============================================================================
+# .gitignore unificado para App Bustamante (Django backend + React Native app)
+# ============================================================================
+
+# ----- Secretos y entorno -----
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+!.env.example
+
+# ----- Sistemas operativos -----
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+$RECYCLE.BIN/
+
+# ----- Editores / IDEs -----
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.history/
+.project
+.classpath
+.settings/
+
+# ----- Logs -----
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ----- Asistentes IA / locales -----
+.claude/
+.cursor/
+.aider*
+.continue/
+
+# ============================================================================
+# Backend Django
+# ============================================================================
+backend/__pycache__/
+backend/**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Entornos virtuales
+backend/venv/
+backend/.venv/
+venv/
+.venv/
+env/
+ENV/
+
+# Django
+backend/db.sqlite3
+backend/db.sqlite3-journal
+backend/*.sqlite3
+backend/staticfiles/
+backend/media/
+local_settings.py
+
+# Migrations: solo ignoramos __pycache__, las migraciones SI se commitean
+
+# Coverage / tests
+backend/.coverage
+backend/htmlcov/
+backend/.pytest_cache/
+backend/.tox/
+backend/coverage.xml
+
+# Packaging
+*.egg-info/
+build/
+dist/
+*.egg
+pip-wheel-metadata/
+
+# ============================================================================
+# Frontend React Native / Expo (busta-app/)
+# ============================================================================
+
+# Dependencias
+busta-app/node_modules/
+node_modules/
+
+# Expo
+busta-app/.expo/
+busta-app/.expo-shared/
+busta-app/dist/
+busta-app/web-build/
+busta-app/expo-env.d.ts
+
+# Native generado (lo regenera Expo prebuild)
+busta-app/ios/
+busta-app/android/
+busta-app/.kotlin/
+
+# Builds
+busta-app/*.ipa
+busta-app/*.apk
+busta-app/*.aab
+
+# Certificados / firmas — NUNCA al repo
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+*.cer
+*.keystore
+
+# Metro / cache
+busta-app/.metro-health-check*
+.metro-cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Yarn (mantenemos lockfile, ignoramos el resto)
+.yarn/cache
+.yarn/install-state.gz
+.pnp.*
+
+# misc
+*.orig.*
+app-example/
