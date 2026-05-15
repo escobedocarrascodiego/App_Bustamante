@@ -3,7 +3,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { authApi } from '@/services/endpoints';
 import { configureApi } from '@/services/api';
 import { tokenStorage } from '@/services/storage';
-import type { Ciudadano } from '@/services/types';
+import type { Ciudadano, DatosPersonalesOmitido } from '@/services/types';
 
 type AuthStatus = 'loading' | 'authenticated' | 'guest';
 
@@ -12,6 +12,12 @@ type AuthContextValue = {
   ciudadano: Ciudadano | null;
   login: (dni: string, password: string) => Promise<void>;
   register: (dni: string, password: string) => Promise<void>;
+  registerOmitido: (
+    dni: string,
+    password: string,
+    datosPersonales?: DatosPersonalesOmitido,
+  ) => Promise<void>;
+  verificarMpv: () => Promise<{ exito: boolean; mensaje: string }>;
   logout: () => Promise<void>;
   refreshPerfil: () => Promise<void>;
 };
@@ -84,6 +90,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await aplicarSesion('register', data);
   };
 
+  const registerOmitido = async (
+    dni: string,
+    password: string,
+    datosPersonales?: DatosPersonalesOmitido,
+  ) => {
+    const data = await authApi.registerOmitido(dni, password, datosPersonales);
+    await aplicarSesion('register', data);
+  };
+
+  const verificarMpv = async (): Promise<{ exito: boolean; mensaje: string }> => {
+    try {
+      const data = await authApi.verificarMpv();
+      // Refresca el ciudadano localmente (verificado=true si paso ok)
+      setCiudadano(data.ciudadano);
+      return { exito: data.mpv_registrado, mensaje: data.mensaje };
+    } catch {
+      return {
+        exito: false,
+        mensaje:
+          'No pudimos verificar tu registro ahora mismo. Revisa tu conexion e intenta de nuevo.',
+      };
+    }
+  };
+
   const logout = async () => {
     tokensRef.current = { access: null, refresh: null };
     await tokenStorage.clear();
@@ -101,7 +131,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const value = useMemo(
-    () => ({ status, ciudadano, login, register, logout, refreshPerfil }),
+    () => ({
+      status,
+      ciudadano,
+      login,
+      register,
+      registerOmitido,
+      verificarMpv,
+      logout,
+      refreshPerfil,
+    }),
     [status, ciudadano],
   );
 

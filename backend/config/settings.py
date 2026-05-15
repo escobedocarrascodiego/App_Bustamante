@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.tramites",
     "apps.tarjetas",
     "apps.catalogos",
+    "apps.chatbot",
     # apps externas de solo lectura (producción)
     "apps.externos_tramites",
     "apps.externos_muni",
@@ -109,6 +110,13 @@ DATABASES = {
 DATABASE_ROUTERS = ["config.db_router.MultiDBRouter"]
 
 AUTH_USER_MODEL = "ciudadanos.Ciudadano"
+
+# Backend custom: acepta tanto `username` (admin) como `dni` (app movil)
+# en el mismo campo del formulario de login. Ver apps/ciudadanos/backends.py
+AUTHENTICATION_BACKENDS = [
+    "apps.ciudadanos.backends.UsernameOrDniBackend",
+    "django.contrib.auth.backends.ModelBackend",
+]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

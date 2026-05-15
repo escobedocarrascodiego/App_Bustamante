@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -194,10 +195,14 @@ export default function NuevoTramiteScreen() {
   }
 
   return (
+    <KeyboardAvoidingView
+      style={{ flex: 1, backgroundColor: MunicipalityColors.surface }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
     <ScrollView
       style={{ flex: 1, backgroundColor: MunicipalityColors.surface }}
       contentContainerStyle={styles.scroll}
-      keyboardShouldPersistTaps="handled">
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}>
       <View style={styles.heroBar}>
         <MaterialCommunityIcons
           name="file-document-edit-outline"
@@ -468,6 +473,7 @@ export default function NuevoTramiteScreen() {
         )}
       </SelectorModal>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

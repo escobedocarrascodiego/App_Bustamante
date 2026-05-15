@@ -103,6 +103,36 @@ def listar_oficinas() -> list[dict[str, Any]]:
     ]
 
 
+def _resolver_nombres_oficinas(cod_ofis) -> dict[str, str]:
+    """
+    Devuelve `{cod_ofi: nom_ofi}` para los codigos pedidos.
+
+    Una sola query batch contra dbControl.Oficinas. Los codigos que no
+    existan no aparecen en el dict — el caller decide el fallback (lo
+    normal es dejar el codigo crudo si no se resuelve).
+    """
+    codigos = {c.strip() for c in (cod_ofis or []) if c and str(c).strip()}
+    if not codigos:
+        return {}
+    qs = (
+        Oficinas.objects.using("tramites_db")
+        .filter(cod_ofi__in=codigos)
+        .values("cod_ofi", "nom_ofi")
+    )
+    return {
+        (o["cod_ofi"] or "").strip(): (o["nom_ofi"] or "").strip()
+        for o in qs
+    }
+
+
+def _nombre_oficina_o_codigo(cod_ofi: str, mapa: dict[str, str]) -> str:
+    """Devuelve el nombre legible de la oficina, o el codigo crudo si no esta en el mapa."""
+    cod = (cod_ofi or "").strip()
+    if not cod:
+        return ""
+    return mapa.get(cod) or cod
+
+
 def obtener_oficina_default() -> dict[str, Any] | None:
     """Oficina por defecto OFI00046 (mesa de partes)."""
     o = (
@@ -284,6 +314,16 @@ def listar_expedientes_contribuyente(cod_pros: list[str] | str) -> list[dict[str
             conteo_prov[p.cod_ing_id] = conteo_prov.get(p.cod_ing_id, 0) + 1
             ultimo_prov.setdefault(p.cod_ing_id, p)
 
+    # Recolectar todos los cod_ofi para una sola query a Oficinas
+    cod_ofis: set[str] = set()
+    for ing in ingresos:
+        if ing.ofi_tra:
+            cod_ofis.add(ing.ofi_tra.strip())
+    for p in ultimo_prov.values():
+        if p.ofi_tra:
+            cod_ofis.add(p.ofi_tra.strip())
+    nombres_ofi = _resolver_nombres_oficinas(cod_ofis)
+
     resultado: list[dict[str, Any]] = []
     for ing in ingresos:
         estado, estado_display = _estado_display(ing)
@@ -300,14 +340,14 @@ def listar_expedientes_contribuyente(cod_pros: list[str] | str) -> list[dict[str
             "observacion": (ing.obs_req or "").strip() if ing.est_obs else "",
             "fecha_ingreso": ing.fec_ing.isoformat() if ing.fec_ing else None,
             "fecha_vencimiento": ing.fec_ven.isoformat() if ing.fec_ven else None,
-            "oficina_actual": (ing.ofi_tra or "").strip(),
+            "oficina_actual": _nombre_oficina_o_codigo(ing.ofi_tra, nombres_ofi),
             "cantidad_proveidos": conteo_prov.get(ing.cod_ing, 0),
             "ultimo_proveido": (
                 {
                     "fecha": ultimo.fec_prov.isoformat() if ultimo.fec_prov else None,
                     "numero": (ultimo.num_prov or "").strip(),
                     "accion": (ultimo.acc_tom or "").strip(),
-                    "oficina": (ultimo.ofi_tra or "").strip(),
+                    "oficina": _nombre_oficina_o_codigo(ultimo.ofi_tra, nombres_ofi),
                 }
                 if ultimo
                 else None
@@ -344,6 +384,11 @@ def listar_ingresos_externos_pendientes(id_usuaext: int | None) -> list[dict[str
         for s in sols:
             nombres_sol[s["cod_solext"]] = (s["nom_solext"] or "").strip()
 
+    # Nombres de oficinas (cod_ofi -> nom_ofi) para mostrar legible en el app
+    nombres_ofi = _resolver_nombres_oficinas({
+        e.ofi_recext for e in qs if e.ofi_recext
+    })
+
     resultado: list[dict[str, Any]] = []
     for e in qs:
         sol_cod = (e.cod_solext or "").strip()
@@ -358,7 +403,7 @@ def listar_ingresos_externos_pendientes(id_usuaext: int | None) -> list[dict[str
             "observacion": "",
             "fecha_ingreso": e.fec_ingext.isoformat() if e.fec_ingext else None,
             "fecha_vencimiento": e.fec_venext.isoformat() if e.fec_venext else None,
-            "oficina_actual": (e.ofi_recext or "").strip(),
+            "oficina_actual": _nombre_oficina_o_codigo(e.ofi_recext, nombres_ofi),
             "cantidad_proveidos": 0,
             "ultimo_proveido": None,
             "origen": "INGRESOS_EXTERNOS",  # marca para distinguir
@@ -428,6 +473,18 @@ def detalle_expediente_siap(
     estado, estado_display = _estado_display(ing)
     sol: Solicitudes | None = ing.cod_sol if ing.cod_sol_id else None
 
+    # Recolectar todos los cod_ofi de la cabecera + linea de vida y resolverlos
+    # de una sola vez (1 query).
+    cod_ofis: set[str] = set()
+    if ing.ofi_tra:
+        cod_ofis.add(ing.ofi_tra.strip())
+    for p in proveidos:
+        if p.cod_ofi:
+            cod_ofis.add(p.cod_ofi.strip())
+        if p.ofi_tra:
+            cod_ofis.add(p.ofi_tra.strip())
+    nombres_ofi = _resolver_nombres_oficinas(cod_ofis)
+
     linea_vida = []
     for p in proveidos:
         linea_vida.append({
@@ -436,8 +493,8 @@ def detalle_expediente_siap(
             "numero": (p.num_prov or "").strip(),
             "tipo_documento": (p.cod_doc or "").strip(),
             "accion": (p.acc_tom or "").strip(),
-            "oficina_origen": (p.cod_ofi or "").strip(),
-            "oficina_destino": (p.ofi_tra or "").strip(),
+            "oficina_origen": _nombre_oficina_o_codigo(p.cod_ofi, nombres_ofi),
+            "oficina_destino": _nombre_oficina_o_codigo(p.ofi_tra, nombres_ofi),
             "fecha_recepcion": p.fec_rec.isoformat() if p.fec_rec else None,
             "recibido": bool(p.est_rec),
         })
@@ -453,7 +510,7 @@ def detalle_expediente_siap(
         "observacion": (ing.obs_req or "").strip() if ing.est_obs else "",
         "fecha_ingreso": ing.fec_ing.isoformat() if ing.fec_ing else None,
         "fecha_vencimiento": ing.fec_ven.isoformat() if ing.fec_ven else None,
-        "oficina_actual": (ing.ofi_tra or "").strip(),
+        "oficina_actual": _nombre_oficina_o_codigo(ing.ofi_tra, nombres_ofi),
         "linea_vida": linea_vida,
     }
 

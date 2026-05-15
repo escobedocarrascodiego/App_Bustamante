@@ -144,6 +144,18 @@ export default function DeudasScreen() {
             <MuniCard style={{ gap: 4 }}>
               <Text style={styles.totalLabel}>Total pendiente</Text>
               <Text style={styles.totalMonto}>S/ {total.toFixed(2)}</Text>
+              {condiciones.length === 1 ? (
+                <View style={styles.condicionRow}>
+                  <MaterialCommunityIcons
+                    name="account-tie-outline"
+                    size={14}
+                    color={MunicipalityColors.primary}
+                  />
+                  <Text style={styles.condicionText}>
+                    Condición: {condiciones[0].nombre}
+                  </Text>
+                </View>
+              ) : null}
               <Text style={styles.muted}>
                 {items.length} registro(s) en {grupos.length} origen(es)
               </Text>
@@ -203,6 +215,18 @@ function DetalleFila({ item }: { item: DeudaDetalleItem }) {
           {periodo}
           {item.predio_cod ? ` · Predio ${item.predio_cod}` : ''}
         </Text>
+        {item.predio_direccion ? (
+          <View style={styles.direccionRow}>
+            <MaterialCommunityIcons
+              name="map-marker-outline"
+              size={12}
+              color={MunicipalityColors.textMuted}
+            />
+            <Text style={styles.direccionText} numberOfLines={2}>
+              {item.predio_direccion}
+            </Text>
+          </View>
+        ) : null}
         {muestraReajuste || muestraPagado ? (
           <Text style={styles.metaFila}>
             {muestraReajuste ? `Reajuste S/ ${item.cargos_reajuste.toFixed(2)}` : ''}
@@ -318,6 +342,20 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: MunicipalityColors.primary,
   },
+  condicionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  condicionText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: MunicipalityColors.primary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   muted: { color: MunicipalityColors.textSecondary, fontSize: 13 },
   grupoHeader: {
     flexDirection: 'row',
@@ -353,6 +391,19 @@ const styles = StyleSheet.create({
     color: MunicipalityColors.textPrimary,
   },
   metaFila: { fontSize: 12, color: MunicipalityColors.textMuted },
+  direccionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 3,
+    marginTop: 1,
+  },
+  direccionText: {
+    flex: 1,
+    fontSize: 11,
+    color: MunicipalityColors.textMuted,
+    fontStyle: 'italic',
+    lineHeight: 14,
+  },
   saldoLabel: {
     fontSize: 10,
     color: MunicipalityColors.textMuted,

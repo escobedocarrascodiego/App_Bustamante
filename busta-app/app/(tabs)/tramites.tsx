@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 
 import { MuniBadge } from '@/components/muni/muni-badge';
+import { MuniBannerMpv } from '@/components/muni/muni-banner-mpv';
 import { MuniButton } from '@/components/muni/muni-button';
 import { MuniCard } from '@/components/muni/muni-card';
 import { MuniHeader } from '@/components/muni/muni-header';
@@ -55,6 +56,9 @@ export default function TramitesScreen() {
         subtitle="Expedientes presentados"
         right={<MuniHelpButton video={VIDEO_REGISTRO_MPV} />}
       />
+      <View style={styles.bannerWrap}>
+        <MuniBannerMpv permitirVerificar={false} />
+      </View>
       <View style={styles.actions}>
         <MuniButton
           label="Iniciar nuevo tramite"
@@ -133,6 +137,7 @@ export default function TramitesScreen() {
 }
 
 const styles = StyleSheet.create({
+  bannerWrap: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
   actions: { padding: Spacing.lg, paddingBottom: 0 },
   content: { padding: Spacing.lg, paddingBottom: Spacing.xxl },
   row: {

@@ -23,6 +23,8 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/health/", health),
     path("api/v1/", include((api_v1, "v1"))),
+    # Chatbot va fuera del prefijo v1 a pedido del feature: /api/chatbot/...
+    path("api/chatbot/", include("apps.chatbot.urls")),
 ]
 
 if settings.DEBUG:

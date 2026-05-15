@@ -108,6 +108,24 @@ def _registrado_en_mpv(prop: Propietarios) -> bool:
     return bool(email and aspnet)
 
 
+def _existe_en_contribuyentes(dni: str) -> bool:
+    """
+    Chequea si el DNI tiene fila vigente en CONTRIBUYENTES (muni_db). Lo usamos
+    para diferenciar entre:
+      - DNI que esta en algun sistema (padron de tramites o de tributos) → ya
+        tenemos sus datos basicos, podemos pre-llenar el Ciudadano.
+      - DNI que no esta en ningun sistema → el ciudadano nunca fue cliente de
+        la municipalidad; necesitamos que escriba sus datos a mano.
+    """
+    if not dni:
+        return False
+    return (
+        Contribuyentes.objects.using("muni_db")
+        .filter(cntrnumdoc=dni.strip(), cntranu=" ")
+        .exists()
+    )
+
+
 def _sync_propietario_a_ciudadano(
     prop: Propietarios, ciudadano: Ciudadano
 ) -> Ciudadano:
@@ -123,16 +141,36 @@ def _sync_propietario_a_ciudadano(
         .first()
     )
 
+    prop_email = (prop.email_pro or "").strip().lower()
+    prop_celular = (prop.tel_pro or "").strip()[:9]
+    prop_direccion = (prop.dir_rep or prop.cal_pro or "").strip()[:200]
+    prop_nombres = nombres or (prop.nom_pro or "").strip()
+
+    # `verificado` refleja el estado real de MPV: True solo si el ciudadano
+    # esta correctamente registrado en Mesa de Partes Virtual. Asi el banner
+    # del frontend (que se muestra cuando verificado=False) sigue apareciendo
+    # despues de cada login para usuarios que omitieron MPV, y desaparece
+    # automaticamente cuando completan el registro.
+    #
+    # Para los campos editables por el ciudadano (nombres, apellidos, email,
+    # celular, direccion) preferimos el valor de Propietarios SOLO si trae
+    # contenido. Si esta vacio conservamos lo que el ciudadano ya escribio.
+    # Asi un usuario que entro via "Continuar sin registrarme" y tipeo sus
+    # datos a mano no los pierde en cada login.
+    #
+    # Cuando el ciudadano se registre en MPV, prop.email_pro vendra con su
+    # nuevo correo y este si sobreescribira al que el ciudadano habia escrito
+    # localmente — que es justo lo que queremos: la fuente de verdad es MPV.
     cambios = {
-        "nombres": nombres or prop.nom_pro or ciudadano.dni,
-        "apellido_paterno": pat,
-        "apellido_materno": mat,
-        "email": (prop.email_pro or "").strip().lower(),
-        "celular": (prop.tel_pro or "").strip()[:9],
-        "direccion": (prop.dir_rep or prop.cal_pro or "").strip()[:200],
+        "nombres": prop_nombres or ciudadano.nombres or ciudadano.dni,
+        "apellido_paterno": pat or ciudadano.apellido_paterno,
+        "apellido_materno": mat or ciudadano.apellido_materno,
+        "email": prop_email or ciudadano.email,
+        "celular": prop_celular or ciudadano.celular,
+        "direccion": prop_direccion or ciudadano.direccion,
         "cod_pro": prop.cod_pro,
-        "cntr_cod": contribuyente.cntrcod if contribuyente else None,
-        "verificado": True,
+        "cntr_cod": contribuyente.cntrcod if contribuyente else ciudadano.cntr_cod,
+        "verificado": _registrado_en_mpv(prop),
         "fecha_ultima_sync": timezone.now(),
     }
     for k, v in cambios.items():
@@ -196,8 +234,67 @@ class CheckDniSerializer(serializers.Serializer):
         dni = attrs["dni"].strip()
 
         prop = _propietario_por_dni(dni)
+        ciudadano = Ciudadano.objects.filter(dni=dni).first()
+
+        # Cuidado: Django considera password="" como "usable" (solo checa que
+        # no empiece con "!"). Validamos ademas que tenga formato hash real.
+        tiene_password_real = (
+            ciudadano is not None
+            and bool(ciudadano.password)
+            and not ciudadano.password.startswith("!")
+            and "$" in ciudadano.password
+        )
+
+        # CASO 1: Ya tiene cuenta en el app con password real.
+        # No importa si esta o no en MPV — la contraseña del app es de una sola
+        # vez. Devolvemos PASSWORD_LOGIN para que solo ingrese su contraseña.
+        # Si despues quiere registrarse en MPV, lo hace desde el banner dentro
+        # del app (verificar-mpv).
+        if tiene_password_real:
+            if prop:
+                nombres, pat, _ = _split_nombres(prop)
+                nombre_corto = (nombres.split()[0] if nombres else "").strip()
+                email_visible = _enmascarar_email(
+                    (prop.email_pro or "").strip().lower()
+                )
+            else:
+                nombre_corto = (
+                    (ciudadano.nombres or "").split()[0]
+                    if ciudadano.nombres
+                    else ""
+                ).strip()
+                pat = ciudadano.apellido_paterno or ""
+                email_visible = _enmascarar_email(
+                    (ciudadano.email or "").strip().lower()
+                )
+            print(
+                f"[check-dni] DNI {dni!r} tiene cuenta en el app -> "
+                f"PASSWORD_LOGIN (mpv={'si' if prop and _registrado_en_mpv(prop) else 'no'})"
+            )
+            return {
+                "paso": "PASSWORD_LOGIN",
+                "razon": "",
+                "mensaje": "Ingresa tu contraseña.",
+                "nombre": nombre_corto or "ciudadano",
+                "apellido_paterno": pat,
+                "email_enmascarado": email_visible,
+                "link_registro": LINK_REGISTRO_MPV,
+                "requiere_datos_personales": False,
+            }
+
+        # CASO 2: No tiene cuenta en el app. Evaluamos el estado en MPV para
+        # decidir si lo bloqueamos (DNI no propietario, MPV incompleto) o si
+        # lo dejamos crear contraseña directo (PASSWORD_NUEVO).
         if not prop:
-            print(f"[check-dni] DNI {dni!r} no encontrado en Propietarios.")
+            # Si tampoco esta en Contribuyentes, es un ciudadano que nunca
+            # tuvo relacion con la municipalidad. Cuando elija "Continuar
+            # sin registrarme" el frontend debe pedirle sus datos personales.
+            en_contribuyentes = _existe_en_contribuyentes(dni)
+            requiere_datos = not en_contribuyentes
+            print(
+                f"[check-dni] DNI {dni!r} no encontrado en Propietarios. "
+                f"contribuyentes={en_contribuyentes!r} requiere_datos={requiere_datos!r}"
+            )
             return {
                 "paso": "BLOQUEADO",
                 "razon": "no_propietario",
@@ -207,6 +304,7 @@ class CheckDniSerializer(serializers.Serializer):
                     "Virtual de la Municipalidad."
                 ),
                 "link_registro": LINK_REGISTRO_MPV,
+                "requiere_datos_personales": requiere_datos,
             }
 
         if not _registrado_en_mpv(prop):
@@ -238,52 +336,39 @@ class CheckDniSerializer(serializers.Serializer):
                     "Tu cuenta de Mesa de Partes Virtual no esta activada. "
                     "Termina el registro alli antes de continuar."
                 )
+            # Aqui esta en Propietarios pero le falta MPV. Ya tenemos sus
+            # datos basicos del padron, asi que NO necesitamos pedirlos.
             return {
                 "paso": "BLOQUEADO",
                 "razon": razon,
                 "mensaje": mensaje,
                 "link_registro": LINK_REGISTRO_MPV,
+                "requiere_datos_personales": False,
             }
 
+        # CASO 3: Tiene email + aspnet en MPV pero todavia no creo password
+        # en el app. Lo mandamos a PASSWORD_NUEVO.
         print(
             f"[check-dni] DNI {dni!r} OK. cod_pro={prop.cod_pro!r} "
             f"id_aspnetusers={prop.id_aspnetusers!r}"
         )
-
-        # Tiene email + aspnet. Vemos si ya creo password en nuestra app.
-        ciudadano = Ciudadano.objects.filter(dni=dni).first()
         nombres, pat, _ = _split_nombres(prop)
         nombre_corto = (nombres.split()[0] if nombres else "").strip()
         email_visible = _enmascarar_email((prop.email_pro or "").strip().lower())
 
-        # Cuidado: Django considera password="" como "usable" (solo checa que
-        # no empiece con "!"). Validamos ademas que tenga formato hash real.
-        tiene_password_real = (
-            ciudadano is not None
-            and bool(ciudadano.password)
-            and not ciudadano.password.startswith("!")
-            and "$" in ciudadano.password
-        )
-
-        if tiene_password_real:
-            paso = "PASSWORD_LOGIN"
-            mensaje = "Ingresa tu contraseña."
-        else:
-            paso = "PASSWORD_NUEVO"
-            mensaje = (
+        return {
+            "paso": "PASSWORD_NUEVO",
+            "razon": "",
+            "mensaje": (
                 "Es tu primera vez en el app. Crea una contraseña para tu "
                 "cuenta. Tu correo de Mesa de Partes Virtual seguira siendo "
                 "el mismo."
-            )
-
-        return {
-            "paso": paso,
-            "razon": "",
-            "mensaje": mensaje,
+            ),
             "nombre": nombre_corto or "ciudadano",
             "apellido_paterno": pat,
             "email_enmascarado": email_visible,
             "link_registro": LINK_REGISTRO_MPV,
+            "requiere_datos_personales": False,
         }
 
 
@@ -297,12 +382,11 @@ class LoginSerializer(serializers.Serializer):
         dni = attrs["dni"].strip()
         password = attrs["password"]
 
+        # No bloqueamos por MPV: el usuario pudo haberse registrado con
+        # "Continuar sin registrarme" (RegisterOmitidoSerializer). Su cuenta
+        # ya existe en nuestro DB y debe poder loguearse. El sync que sigue
+        # marcara `verificado=False` si todavia no se registro en MPV.
         prop = _propietario_por_dni(dni)
-        if not prop or not _registrado_en_mpv(prop):
-            raise serializers.ValidationError(
-                "Tu cuenta no esta habilitada en Mesa de Partes Virtual. "
-                f"Registrate primero en {LINK_REGISTRO_MPV}."
-            )
 
         ciudadano = authenticate(
             request=self.context.get("request"), dni=dni, password=password
@@ -316,9 +400,12 @@ class LoginSerializer(serializers.Serializer):
                 "Cuenta inactiva. Contacta a la municipalidad."
             )
 
-        # Sync de Propietarios -> Ciudadano (email, etc.)
-        with transaction.atomic(using="default"):
-            _sync_propietario_a_ciudadano(prop, ciudadano)
+        # Sync de Propietarios -> Ciudadano (email, cod_pro, verificado, etc.)
+        # Solo si encontramos al ciudadano en el padron. Si no esta (DNI
+        # no propietario), conservamos los datos actuales del Ciudadano.
+        if prop:
+            with transaction.atomic(using="default"):
+                _sync_propietario_a_ciudadano(prop, ciudadano)
 
         return _emitir_tokens(ciudadano)
 
@@ -383,3 +470,194 @@ class RegisterSerializer(serializers.Serializer):
             _sync_propietario_a_ciudadano(prop, ciudadano)
 
         return _emitir_tokens(ciudadano)
+
+
+class RegisterOmitidoSerializer(serializers.Serializer):
+    """
+    Set-up de password SIN exigir registro en Mesa de Partes Virtual.
+
+    Permite a un ciudadano entrar al app aunque todavia no tenga cuenta MPV,
+    para que pueda ver predios, deudas, tarjeta, etc. Marca `verificado=False`
+    para que el frontend muestre el banner de "completa tu registro en MPV".
+
+    Tres casos:
+      1) DNI en Propietarios → enlaza cod_pro, cntr_cod, nombres del padron.
+         Ignora los campos personales que mande el frontend (la fuente de
+         verdad es Propietarios).
+      2) DNI en Contribuyentes (no en Propietarios) → crea Ciudadano con
+         datos genericos; el sync via cntr_cod sucede mas adelante.
+      3) DNI en NINGUN sistema → el frontend mando nombres/apellidos/email/
+         celular/direccion; los usamos para crear el Ciudadano. Cuando se
+         registre en MPV, `_sync_propietario_a_ciudadano` sobreescribe estos
+         datos con la fuente canonica.
+    """
+
+    dni = serializers.CharField(min_length=8, max_length=15)
+    password = serializers.CharField(write_only=True, min_length=6, max_length=64)
+    nombres = serializers.CharField(
+        required=False, allow_blank=True, max_length=120
+    )
+    apellido_paterno = serializers.CharField(
+        required=False, allow_blank=True, max_length=80
+    )
+    apellido_materno = serializers.CharField(
+        required=False, allow_blank=True, max_length=80
+    )
+    email = serializers.EmailField(required=False, allow_blank=True)
+    celular = serializers.CharField(
+        required=False, allow_blank=True, max_length=15
+    )
+    direccion = serializers.CharField(
+        required=False, allow_blank=True, max_length=200
+    )
+
+    def validate_password(self, value: str) -> str:
+        if value.strip() != value:
+            raise serializers.ValidationError(
+                "La contraseña no puede empezar o terminar con espacios."
+            )
+        return value
+
+    def validate(self, attrs):
+        dni = attrs["dni"].strip()
+        password = attrs["password"]
+
+        prop = _propietario_por_dni(dni)  # puede ser None
+        en_contribuyentes = _existe_en_contribuyentes(dni)
+        # Cuando el DNI no esta en ningun sistema, exigimos que el frontend
+        # haya mandado al menos nombres, apellido_paterno y email.
+        sin_padron = not prop and not en_contribuyentes
+        if sin_padron:
+            faltantes = []
+            if not (attrs.get("nombres") or "").strip():
+                faltantes.append("nombres")
+            if not (attrs.get("apellido_paterno") or "").strip():
+                faltantes.append("apellido_paterno")
+            if not (attrs.get("email") or "").strip():
+                faltantes.append("email")
+            if faltantes:
+                raise serializers.ValidationError(
+                    "Faltan datos obligatorios para crear tu cuenta: "
+                    + ", ".join(faltantes)
+                    + "."
+                )
+
+        # Datos por defecto para el get_or_create. Si tenemos prop usamos su
+        # informacion, si no usamos lo que mando el frontend (puede venir
+        # vacio si el ciudadano si estaba en Contribuyentes).
+        if prop:
+            nombres, pat, mat = _split_nombres(prop)
+            nombres_default = nombres or prop.nom_pro or dni
+            ap_paterno = pat
+            ap_materno = mat
+            email = (prop.email_pro or "").strip().lower()
+            celular = (prop.tel_pro or "").strip()[:9]
+            direccion = (prop.dir_rep or prop.cal_pro or "").strip()[:200]
+        else:
+            nombres_default = (attrs.get("nombres") or dni).strip() or dni
+            ap_paterno = (attrs.get("apellido_paterno") or "").strip()
+            ap_materno = (attrs.get("apellido_materno") or "").strip()
+            email = (attrs.get("email") or "").strip().lower()
+            celular = (attrs.get("celular") or "").strip()[:9]
+            direccion = (attrs.get("direccion") or "").strip()[:200]
+
+        with transaction.atomic(using="default"):
+            ciudadano, created = Ciudadano.objects.get_or_create(
+                dni=dni,
+                defaults={
+                    "nombres": nombres_default,
+                    "apellido_paterno": ap_paterno,
+                    "apellido_materno": ap_materno,
+                    "email": email,
+                    "celular": celular,
+                    "direccion": direccion,
+                },
+            )
+
+            # Si la cuenta ya existia pero le faltaban datos, los completamos
+            # con lo que mando el frontend (caso: usuario abandono el flujo
+            # a medio camino y vuelve a intentar).
+            if not created and not prop:
+                cambios_perfil = {}
+                if not (ciudadano.nombres or "").strip() and nombres_default:
+                    cambios_perfil["nombres"] = nombres_default
+                if not (ciudadano.apellido_paterno or "").strip() and ap_paterno:
+                    cambios_perfil["apellido_paterno"] = ap_paterno
+                if not (ciudadano.apellido_materno or "").strip() and ap_materno:
+                    cambios_perfil["apellido_materno"] = ap_materno
+                if not (ciudadano.email or "").strip() and email:
+                    cambios_perfil["email"] = email
+                if not (ciudadano.celular or "").strip() and celular:
+                    cambios_perfil["celular"] = celular
+                if not (ciudadano.direccion or "").strip() and direccion:
+                    cambios_perfil["direccion"] = direccion
+                if cambios_perfil:
+                    for k, v in cambios_perfil.items():
+                        setattr(ciudadano, k, v)
+                    ciudadano.save(update_fields=list(cambios_perfil.keys()))
+
+            if created or not (ciudadano.password or "").strip():
+                ciudadano.set_unusable_password()
+                ciudadano.save(update_fields=["password"])
+
+            if ciudadano.has_usable_password():
+                raise serializers.ValidationError(
+                    "Esta cuenta ya tiene contraseña. Usa la opcion 'Ingresar'."
+                )
+
+            ciudadano.set_password(password)
+            ciudadano.save(update_fields=["password"])
+
+            # Si encontramos en Propietarios, sincronizamos pero RE-marcamos
+            # verificado=False porque el ciudadano omitio MPV. El banner
+            # del frontend pide completar el registro mas tarde.
+            if prop:
+                _sync_propietario_a_ciudadano(prop, ciudadano)
+                ciudadano.verificado = False
+                ciudadano.save(update_fields=["verificado"])
+            else:
+                ciudadano.verificado = False
+                ciudadano.save(update_fields=["verificado"])
+
+        return _emitir_tokens(ciudadano)
+
+
+class VerificarMpvSerializer(serializers.Serializer):
+    """
+    Re-chequea si el ciudadano logueado YA se registro en MPV. Si si:
+    sincroniza sus datos (email, cod_pro, etc.) y marca verificado=True,
+    asi el banner desaparece. Si no: devuelve `mpv_registrado=False` para
+    que el frontend muestre "aun no detectamos tu registro".
+    """
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        if request is None or not request.user.is_authenticated:
+            raise serializers.ValidationError("Sesion requerida.")
+
+        ciudadano: Ciudadano = request.user
+        prop = _propietario_por_dni(ciudadano.dni)
+
+        if not prop or not _registrado_en_mpv(prop):
+            return {
+                "mpv_registrado": False,
+                "ciudadano": CiudadanoSerializer(ciudadano).data,
+                "mensaje": (
+                    "Aun no detectamos tu registro en Mesa de Partes Virtual. "
+                    "Asegurate de completar el proceso e intenta nuevamente."
+                ),
+            }
+
+        # MPV ok — sincronizamos y marcamos verificado=True
+        with transaction.atomic(using="default"):
+            _sync_propietario_a_ciudadano(prop, ciudadano)
+            # _sync ya pone verificado=True, pero lo dejamos explicito por claridad
+            ciudadano.verificado = True
+            ciudadano.save(update_fields=["verificado"])
+
+        ciudadano.refresh_from_db()
+        return {
+            "mpv_registrado": True,
+            "ciudadano": CiudadanoSerializer(ciudadano).data,
+            "mensaje": "¡Listo! Tu cuenta esta vinculada con Mesa de Partes Virtual.",
+        }

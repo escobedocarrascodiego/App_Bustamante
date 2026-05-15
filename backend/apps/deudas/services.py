@@ -38,6 +38,7 @@ class DeudaDetalleItem(TypedDict):
     anio: int | None
     mes: int | None
     predio_cod: str | None
+    predio_direccion: str | None   # ej. "DANIEL ALCIDES CARRION - MZ L / LOTE 03"
     prd_con_cod: int | None        # 1=PU, 4=SC, etc (PREDIOCOND.PrdConCod)
     condicion_nombre: str | None   # ej. "PROPIETARIO UNICO"
     importe_original: float
@@ -69,6 +70,54 @@ def _cargar_prediocond() -> dict[int, str]:
         return {}
     _PREDIOCOND_CACHE = out
     return out
+
+
+def _cargar_direcciones_predios(predios_cods: set[int]) -> dict[int, str]:
+    """
+    Devuelve `{PrdCod: 'ZONA - MZ X / LOTE Y'}` para los predios pedidos.
+
+    Construye la direccion legible juntando ZONAS.ZonaDes + PREDIO.PrdManzana
+    + PREDIO.PrdLote. Si el predio no tiene manzana/lote (caso de predios
+    rusticos o sin numerar), devuelve solo la zona.
+
+    Una sola query con un IN (...) para no hacer N+1 por cada item de deuda.
+    """
+    if not predios_cods:
+        return {}
+
+    placeholders = ",".join(["%s"] * len(predios_cods))
+    sql = f"""
+        SELECT
+            p.PrdCod,
+            LTRIM(RTRIM(ISNULL(z.ZonaDes, ''))) AS Zona,
+            LTRIM(RTRIM(ISNULL(p.PrdManzana, ''))) AS Manzana,
+            LTRIM(RTRIM(ISNULL(p.PrdLote, ''))) AS Lote
+        FROM PREDIO p WITH (NOLOCK)
+        LEFT JOIN ZONAS z WITH (NOLOCK) ON z.ZonaCod = p.ZonaCod
+        WHERE p.PrdCod IN ({placeholders})
+    """
+    direcciones: dict[int, str] = {}
+    try:
+        with connections["muni_db"].cursor() as cursor:
+            cursor.execute(sql, list(predios_cods))
+            for row in cursor.fetchall():
+                prd_cod, zona, mz, lote = row
+                if prd_cod is None:
+                    continue
+                partes: list[str] = []
+                if zona:
+                    partes.append(zona)
+                if mz and lote:
+                    partes.append(f"MZ {mz} / LOTE {lote}")
+                elif mz:
+                    partes.append(f"MZ {mz}")
+                elif lote:
+                    partes.append(f"LOTE {lote}")
+                direcciones[int(prd_cod)] = " - ".join(partes) if partes else ""
+    except Exception as exc:  # pragma: no cover
+        print(f"[predios] error cargando direcciones: {exc!r}")
+        return {}
+    return direcciones
 
 
 def listar_condiciones_por_dni(dni: str) -> list[dict]:
@@ -237,6 +286,18 @@ UNION ALL
 --    se contaban años antiguos ya pagados como si fueran deuda viva
 --    (caso real: contribuyente con 9 años en IMPPREANU pero solo 2 pendientes,
 --    estabamos sumando los 9 e inflando el total ~2x).
+--
+--    BUG HISTORICO: antes filtrabamos ademas con NOT EXISTS contra CTACTE
+--    rubro=1, lo que excluia el predial de IMPPREANU si SIAP tenia algun
+--    cargo administrativo del año (formulario S/10, recargos chicos)
+--    aunque el predial completo NO estuviera generado. Resultado: para un
+--    contribuyente con cargos pagados de S/10 en 2019/2020/2021, el predial
+--    completo S/863+S/885+S/899 desaparecia. Caso real: DNI 02008230,
+--    deuda real 8532.59 vs reportada 5763.64 (faltaba 2768.95).
+--
+--    Ahora confiamos en IpaFlgPagado: si dice 0, el predial NO esta generado
+--    completamente y es deuda viva, sin importar que haya cargos chicos en
+--    CTACTE del mismo año. Cuando se genera de verdad, IpaFlgPagado pasa a 1.
 SELECT
     'PREDIAL NO GENERADO (TITULAR)' AS Origen,
     '1. Impuesto Predial'      AS Concepto,
@@ -252,14 +313,6 @@ SELECT
 FROM PrediosTitular p
 WHERE p.PredialCalculado > 0
   AND p.FlgPagadoPredial = 0
-  AND NOT EXISTS (
-        SELECT 1 FROM CTACTE c WITH (NOLOCK)
-        WHERE c.CntrCod   = p.CntrCod
-          AND c.IpaCod    = p.IpaCod
-          AND c.CtCtAno   = p.Anio
-          AND c.RubroCod  = 1
-          AND c.CtCtFlgAnu = ' '
-  )
 
 UNION ALL
 
@@ -282,6 +335,9 @@ WHERE p.FlgSerGenerado = 0
 UNION ALL
 
 -- 4) ARBITRIOS CALCULADOS PERO NO GENERADOS
+--    Mismo motivo que SELECT 2: quitamos el NOT EXISTS contra CTACTE Rubro=2
+--    porque cargos chicos pagados (cuotas individuales menores) lo activaban
+--    indebidamente y dejaban fuera arbitrios completos no generados.
 SELECT
     'ARBITRIOS NO GENERADOS' AS Origen,
     '2. Arbitrios'          AS Concepto,
@@ -296,18 +352,12 @@ SELECT
 FROM PrediosTitular p
 WHERE p.FlgPagadoArb = 0
   AND (p.ArbitrioRBCalc + p.ArbitrioBVCalc + p.ArbitrioPJCalc) > 0
-  AND NOT EXISTS (
-        SELECT 1 FROM CTACTE c WITH (NOLOCK)
-        WHERE c.CntrCod   = p.CntrCod
-          AND c.IpaCod    = p.IpaCod
-          AND c.CtCtAno   = p.Anio
-          AND c.RubroCod  = 2
-          AND c.CtCtFlgAnu = ' '
-  )
 
 UNION ALL
 
 -- 5) PREDIAL CO-PROPIETARIO NO GENERADO (IMPPREANUCNTR)
+--    Sin NOT EXISTS por las mismas razones que SELECT 2: confiamos en
+--    IpaGeneFlg de IMPPREANUCNTR como source of truth.
 SELECT
     'PREDIAL NO GENERADO (CO-PROP)' AS Origen,
     '1. Impuesto Predial'      AS Concepto,
@@ -322,14 +372,6 @@ SELECT
 FROM PrediosCoopVarios p
 WHERE p.PredialCalculado > 0
   AND p.FlgGenPredial = 0
-  AND NOT EXISTS (
-        SELECT 1 FROM CTACTE c WITH (NOLOCK)
-        WHERE c.CntrCod   = p.CntrCod
-          AND c.IpaCod    = p.IpaCod
-          AND c.CtCtAno   = p.Anio
-          AND c.RubroCod  = 1
-          AND c.CtCtFlgAnu = ' '
-  )
 
 UNION ALL
 
@@ -352,6 +394,7 @@ WHERE p.FlgGenSer = 0
 UNION ALL
 
 -- 7) ARBITRIOS CO-PROPIETARIO NO GENERADOS (RB+BV+PJ ya pro-rateados)
+--    Sin NOT EXISTS: confiamos en IpaGeneArbFlg de IMPPREANUCNTR.
 SELECT
     'ARBITRIOS NO GENERADOS (CO-PROP)' AS Origen,
     '2. Arbitrios'             AS Concepto,
@@ -366,14 +409,6 @@ SELECT
 FROM PrediosCoopVarios p
 WHERE p.FlgGenArb = 0
   AND (p.ArbitrioRBCalc + p.ArbitrioBVCalc + p.ArbitrioPJCalc) > 0
-  AND NOT EXISTS (
-        SELECT 1 FROM CTACTE c WITH (NOLOCK)
-        WHERE c.CntrCod   = p.CntrCod
-          AND c.IpaCod    = p.IpaCod
-          AND c.CtCtAno   = p.Anio
-          AND c.RubroCod  = 2
-          AND c.CtCtFlgAnu = ' '
-  )
 
 ORDER BY Concepto, Anio, Mes, PredioCod;
 """
@@ -433,6 +468,7 @@ def listar_deudas_detalle(cntrcod: int) -> list[DeudaDetalleItem]:
             "anio": int(anio) if anio is not None else None,
             "mes": int(mes) if mes is not None else None,
             "predio_cod": str(predio_cod) if predio_cod is not None else None,
+            "predio_direccion": None,  # se completa abajo en una query batch
             "prd_con_cod": prd_con_cod_int,
             "condicion_nombre": (
                 nombres_cond.get(prd_con_cod_int)
@@ -600,6 +636,32 @@ def listar_deudas_detalle(cntrcod: int) -> list[DeudaDetalleItem]:
             "pagado": 0.0,
             "saldo_pendiente": cargo,
         })
+
+    # ----------------------------------------------------------------------
+    # ENRIQUECER con direccion del predio (ZONAS.ZonaDes + PrdManzana / Lote)
+    # ----------------------------------------------------------------------
+    # Hacemos UNA sola query batch con todos los predio_cod presentes en
+    # los items para evitar N+1. Los items sin predio_cod (FORMULARIO PREDIAL
+    # agregado, etc.) quedan con direccion=None.
+    predios_cods: set[int] = set()
+    for d in detalle:
+        pc = d.get("predio_cod")
+        if not pc:
+            continue
+        try:
+            predios_cods.add(int(pc))
+        except (TypeError, ValueError):
+            continue
+
+    direcciones_predios = _cargar_direcciones_predios(predios_cods)
+    for d in detalle:
+        pc = d.get("predio_cod")
+        if not pc:
+            continue
+        try:
+            d["predio_direccion"] = direcciones_predios.get(int(pc))
+        except (TypeError, ValueError):
+            d["predio_direccion"] = None
 
     # Resumen para diagnostico
     total_ctacte = sum(

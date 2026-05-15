@@ -6,7 +6,9 @@ from .serializers import (
     CheckDniSerializer,
     CiudadanoSerializer,
     LoginSerializer,
+    RegisterOmitidoSerializer,
     RegisterSerializer,
+    VerificarMpvSerializer,
 )
 
 
@@ -44,6 +46,38 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+
+
+class RegisterOmitidoView(APIView):
+    """
+    Registro en el app SIN verificar Mesa de Partes Virtual. El ciudadano
+    podra ver predios/deudas/tarjeta, pero tendra `verificado=False` y se
+    le mostrara el banner para completar MPV.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = RegisterOmitidoSerializer(
+            data=request.data, context={"request": request}
+        )
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_201_CREATED)
+
+
+class VerificarMpvView(APIView):
+    """
+    Re-chequea si el usuario ya completo el registro en MPV. Si si, marca
+    `verificado=True` y sincroniza datos. Si no, devuelve un mensaje
+    indicando que aun no se detecta el registro.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = VerificarMpvSerializer(data={}, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
 class PerfilView(generics.RetrieveUpdateAPIView):

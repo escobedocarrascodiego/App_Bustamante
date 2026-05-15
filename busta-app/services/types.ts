@@ -24,6 +24,12 @@ export type AuthResponse = {
 
 export type CheckDniPaso = 'PASSWORD_LOGIN' | 'PASSWORD_NUEVO' | 'BLOQUEADO';
 
+export type VerificarMpvResponse = {
+  mpv_registrado: boolean;
+  ciudadano: Ciudadano;
+  mensaje: string;
+};
+
 export type CheckDniResponse = {
   paso: CheckDniPaso;
   razon: string;
@@ -32,6 +38,23 @@ export type CheckDniResponse = {
   apellido_paterno?: string;
   email_enmascarado?: string;
   link_registro: string;
+  /**
+   * True solo cuando el DNI no esta ni en Propietarios ni en Contribuyentes.
+   * Indica al frontend que, si el usuario elige "Continuar sin registrarme",
+   * debe pedirle sus datos personales (nombres, apellidos, email, celular,
+   * direccion) antes del password porque no los podemos jalar de ningun
+   * sistema municipal.
+   */
+  requiere_datos_personales?: boolean;
+};
+
+export type DatosPersonalesOmitido = {
+  nombres: string;
+  apellido_paterno: string;
+  apellido_materno: string;
+  email: string;
+  celular: string;
+  direccion: string;
 };
 
 export type Paginated<T> = {
@@ -107,6 +130,13 @@ export type DeudaDetalleItem = {
   anio: number | null;
   mes: number | null;
   predio_cod: string | null;
+  /**
+   * Direccion legible del predio: "ZONA - MZ X / LOTE Y" (ej. "DANIEL ALCIDES
+   * CARRION - MZ L / LOTE 03"). Si el predio no tiene manzana/lote se devuelve
+   * solo la zona. `null` cuando el item no tiene predio asociado (ej. cargos
+   * agregados como "Formulario predial").
+   */
+  predio_direccion: string | null;
   prd_con_cod: number | null;        // 1=PU, 4=SC, etc
   condicion_nombre: string | null;
   importe_original: number;
@@ -339,4 +369,33 @@ export type Contacto = {
   email: string;
   horario: string;
   orden: number;
+};
+
+// ----- Chatbot -----
+
+export type GerenciaChatbot = {
+  id: number;
+  nombre: string;
+};
+
+export type RolMensajeChat = 'usuario' | 'bot';
+
+export type MensajeChat = {
+  rol: RolMensajeChat;
+  contenido: string;
+  creado_en: string;
+};
+
+export type ChatbotNuevaSesionResponse = {
+  sesion_id: string;
+};
+
+export type ChatbotEnviarMensajeResponse = {
+  respuesta: string;
+  encontrado: boolean;
+  sesion_id: string;
+};
+
+export type ChatbotHistorialResponse = {
+  mensajes: MensajeChat[];
 };

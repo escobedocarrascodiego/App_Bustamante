@@ -57,9 +57,31 @@ class DeudaViewSet(viewsets.ReadOnlyModelViewSet):
         (1=Propietario Unico, 4=Sociedad Conyugal, etc - PREDIOCOND).
         Devuelve `condiciones[]` con cada PrdConCod presente en la deuda
         del contribuyente y su monto total — el front muestra el selector.
+
+        IMPORTANTE: un mismo DNI puede tener N filas en CONTRIBUYENTES (varios
+        "roles tributarios": una como Propietario Unico, otra como Sociedad
+        Conyugal, otra como Sucesion, etc.). Cada CntrCod tiene su propia
+        deuda en CTACTE/IMPPREANU. Antes consultabamos solo el primer CntrCod
+        y perdiamos las deudas de los demas roles — el selector de condiciones
+        solo mostraba uno aunque hubieran varios.
         """
-        cntrcod = obtener_cntrcod_usuario(request.user)
-        if not cntrcod:
+        dni = (getattr(request.user, "dni", None) or "").strip()
+
+        # Resolver TODOS los CntrCods asociados al DNI. Asi acumulamos la
+        # deuda de cada rol tributario y el frontend puede mostrar el selector
+        # completo de condiciones.
+        condiciones_dni = listar_condiciones_por_dni(dni) if dni else []
+
+        # Fallback: si el usuario no tiene DNI valido o no esta en
+        # CONTRIBUYENTES, intentamos usar el cntr_cod cacheado en su perfil
+        # (camino antiguo). Garantiza retrocompatibilidad sin tocar usuarios
+        # que solo tienen 1 cntrcod.
+        if not condiciones_dni:
+            fallback = obtener_cntrcod_usuario(request.user)
+            if fallback:
+                condiciones_dni = [{"cntrcod": int(fallback), "nombre": ""}]
+
+        if not condiciones_dni:
             return Response(
                 {
                     "items": [],
@@ -72,7 +94,15 @@ class DeudaViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_200_OK,
             )
 
-        items_full = listar_deudas_detalle(cntrcod)
+        # Consolidar items de todos los CntrCods. Cada item ya trae su propio
+        # PrdConCod, asi que el filtrado por condicion sigue siendo correcto
+        # independientemente de cuantos cntrcods aporten datos.
+        items_full: list[dict] = []
+        cntrcods_usados: list[int] = []
+        for cond in condiciones_dni:
+            cc = cond["cntrcod"]
+            cntrcods_usados.append(cc)
+            items_full.extend(listar_deudas_detalle(cc))
 
         # Construimos la lista de condiciones a partir de los PrdConCod
         # realmente presentes en la deuda (no de CONTRIBUYENTES).
@@ -102,16 +132,23 @@ class DeudaViewSet(viewsets.ReadOnlyModelViewSet):
             if prdconcod is not None and prdconcod not in cond_map:
                 print(
                     f"[deudas] prdconcod={prdconcod_param!r} no esta en la "
-                    f"deuda del cntrcod={cntrcod}; ignorado."
+                    f"deuda del DNI {dni!r} (cntrcods={cntrcods_usados}); ignorado."
                 )
                 prdconcod = None
 
         items = _filtrar_por_prdconcod(items_full, prdconcod)
         total = sum(item["saldo_pendiente"] for item in items)
 
+        # Para el campo `cntrcod` de la respuesta seguimos devolviendo solo
+        # uno (el primero) por compatibilidad con clientes antiguos que lo
+        # consumen. El frontend no lo usa para nada importante — todo lo que
+        # necesita esta en `condiciones[]`.
+        cntrcod_principal = cntrcods_usados[0] if cntrcods_usados else None
+
         print(
-            f"[deudas] detalle cntrcod={cntrcod} prdconcod={prdconcod} "
-            f"items={len(items)}/{len(items_full)} total={total:.2f} "
+            f"[deudas] detalle dni={dni!r} cntrcods={cntrcods_usados} "
+            f"prdconcod={prdconcod} items={len(items)}/{len(items_full)} "
+            f"total={total:.2f} "
             f"condiciones={[(c['prd_con_cod'], c['nombre'], c['deuda_total']) for c in condiciones]}"
         )
 
@@ -119,7 +156,7 @@ class DeudaViewSet(viewsets.ReadOnlyModelViewSet):
             {
                 "items": items,
                 "total": round(total, 2),
-                "cntrcod": cntrcod,
+                "cntrcod": cntrcod_principal,
                 "condiciones": condiciones,
                 "prdconcod": prdconcod,
                 "mensaje": "",

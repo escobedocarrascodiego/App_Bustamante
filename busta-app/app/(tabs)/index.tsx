@@ -1,16 +1,28 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { WebView } from 'react-native-webview';
 
-import { MuniBadge } from '@/components/muni/muni-badge';
+import { MuniBannerMpv } from '@/components/muni/muni-banner-mpv';
 import { MuniCard } from '@/components/muni/muni-card';
+import { MuniChatFab } from '@/components/muni/muni-chat-fab';
 import { MuniHeader } from '@/components/muni/muni-header';
 import { MuniLogo } from '@/components/muni/muni-logo';
 import { MunicipalityColors, Radius, Spacing } from '@/constants/theme';
-import { catalogosApi, deudasApi } from '@/services/endpoints';
-import type { DeudaDetalleResponse, Noticia } from '@/services/types';
+import { deudasApi } from '@/services/endpoints';
+import type { DeudaDetalleResponse } from '@/services/types';
 import { useAuth } from '@/store/auth-context';
+
+const NOTAS_PRENSA_URL = 'https://munibustamante.gob.pe/notas-de-prensa';
 
 type AccesoRapido = {
   icono: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -21,18 +33,14 @@ type AccesoRapido = {
 export default function InicioScreen() {
   const { ciudadano } = useAuth();
   const [resumen, setResumen] = useState<DeudaDetalleResponse | null>(null);
-  const [noticias, setNoticias] = useState<Noticia[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [cargandoWeb, setCargandoWeb] = useState(true);
 
   const cargar = useCallback(async () => {
     try {
-      const [r, n] = await Promise.all([
-        deudasApi.detalle().catch(() => null),
-        catalogosApi.noticias().catch(() => []),
-      ]);
+      const r = await deudasApi.detalle().catch(() => null);
       setResumen(r);
-      setNoticias(n.slice(0, 3));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -68,6 +76,7 @@ export default function InicioScreen() {
             }}
           />
         }>
+        <MuniBannerMpv permitirVerificar />
         <MuniCard>
           <Text style={styles.sectionLabel}>Resumen tributario</Text>
           {loading ? (
@@ -105,27 +114,41 @@ export default function InicioScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Noticias municipales</Text>
-        {noticias.length === 0 ? (
-          <MuniCard>
-            <Text style={styles.muted}>No hay noticias recientes.</Text>
-          </MuniCard>
-        ) : (
-          noticias.map((n) => (
-            <MuniCard key={n.id} style={{ gap: 6 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: Spacing.sm }}>
-                {n.destacada ? <MuniBadge label="Destacada" tone="accent" /> : null}
-                <Text style={styles.fecha}>
-                  {new Date(n.fecha_publicacion).toLocaleDateString('es-PE')}
-                </Text>
-              </View>
-              <Text style={styles.noticiaTitulo}>{n.titulo}</Text>
-              <Text numberOfLines={3} style={styles.muted}>
-                {n.resumen || n.contenido}
-              </Text>
-            </MuniCard>
-          ))
-        )}
+        {/*
+          El View captura gestos para que el ScrollView padre no se "robe"
+          el swipe vertical mientras el dedo esta sobre el WebView. Sin
+          esto el ScrollView gana y el WebView nunca llega a scrollear su
+          contenido HTML. nestedScrollEnabled habilita la cooperacion del
+          scroll nativo en Android.
+        */}
+        <View
+          style={styles.notasWrap}
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderTerminationRequest={() => false}>
+          <WebView
+            source={{ uri: NOTAS_PRENSA_URL }}
+            style={styles.notasWebview}
+            onLoadStart={() => setCargandoWeb(true)}
+            onLoadEnd={() => setCargandoWeb(false)}
+            startInLoadingState={false}
+            javaScriptEnabled
+            domStorageEnabled
+            nestedScrollEnabled
+            scrollEnabled
+            androidLayerType="hardware"
+          />
+          {cargandoWeb ? (
+            <View style={styles.notasLoader} pointerEvents="none">
+              <ActivityIndicator color={MunicipalityColors.primary} />
+              <Text style={styles.notasLoaderText}>Cargando notas de prensa...</Text>
+            </View>
+          ) : null}
+        </View>
       </ScrollView>
+
+      {/* FAB del chatbot: solo visible en Inicio */}
+      <MuniChatFab />
     </View>
   );
 }
@@ -176,10 +199,26 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   verMasText: { color: MunicipalityColors.primary, fontWeight: '700' },
-  fecha: { fontSize: 12, color: MunicipalityColors.textMuted },
-  noticiaTitulo: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: MunicipalityColors.textPrimary,
+  notasWrap: {
+    width: '100%',
+    height: 420,
+    borderRadius: Radius.lg,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: MunicipalityColors.border,
+    backgroundColor: MunicipalityColors.white,
   },
+  notasWebview: { flex: 1 },
+  notasLoader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    backgroundColor: MunicipalityColors.white,
+  },
+  notasLoaderText: { color: MunicipalityColors.textMuted, fontSize: 12 },
 });

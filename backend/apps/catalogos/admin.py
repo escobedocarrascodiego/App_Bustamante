@@ -12,7 +12,7 @@ class NoticiaAdmin(admin.ModelAdmin):
 
 @admin.register(LugarInteres)
 class LugarAdmin(admin.ModelAdmin):
-    list_display = ("nombre", "tipo", "direccion", "telefono")
+    list_display = ("nombre", "tipo", "direccion", "latitud", "longitud")
     list_filter = ("tipo",)
     search_fields = ("nombre", "direccion")
 

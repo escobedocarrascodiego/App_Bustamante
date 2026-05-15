@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { MunicipalityColors } from '@/constants/theme';
@@ -14,6 +15,12 @@ function tabIcon(name: TabIconName) {
 }
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  // Altura base de la tab bar + espacio extra para no quedar tapados por
+  // la gesture bar / home indicator del sistema (Android moderno e iOS).
+  const baseHeight = 62;
+  const safeBottom = insets.bottom;
+
   return (
     <Tabs
       screenOptions={{
@@ -23,7 +30,8 @@ export default function TabLayout() {
           backgroundColor: MunicipalityColors.white,
           borderTopColor: MunicipalityColors.border,
           paddingTop: 6,
-          height: 62,
+          paddingBottom: safeBottom,
+          height: baseHeight + safeBottom,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         headerShown: false,

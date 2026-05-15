@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '@/constants/config';
+import { getApiBaseUrl } from '@/constants/config';
 
 export type TokenPair = { access: string; refresh: string };
 
@@ -6,6 +6,11 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   token?: string | null;
   auth?: boolean;
+  /**
+   * Override del prefijo base. Por defecto se usa API_BASE_URL (`/api/v1`).
+   * Se usa, por ejemplo, en el chatbot publico que vive bajo `/api/chatbot/`.
+   */
+  baseUrl?: string;
 };
 
 export class ApiError extends Error {
@@ -35,7 +40,7 @@ async function refreshAccess(): Promise<string | null> {
   if (!tokenProvider) return null;
   const refresh = tokenProvider.getRefresh();
   if (!refresh) return null;
-  const res = await fetch(`${API_BASE_URL}/auth/token/refresh/`, {
+  const res = await fetch(`${getApiBaseUrl()}/auth/token/refresh/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh }),
@@ -47,7 +52,8 @@ async function refreshAccess(): Promise<string | null> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, token, auth = true, headers, ...rest } = options;
+  const { body, token, auth = true, headers, baseUrl, ...rest } = options;
+  const base = baseUrl ?? getApiBaseUrl();
 
   const buildHeaders = (accessToken?: string | null): HeadersInit => {
     const h: Record<string, string> = {
@@ -63,7 +69,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   };
 
   const doFetch = async (accessToken?: string | null) => {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       ...rest,
       headers: buildHeaders(accessToken),
       body:
