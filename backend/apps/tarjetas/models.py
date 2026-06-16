@@ -75,6 +75,46 @@ class TarjetaCiudadana(models.Model):
         )
 
 
+class BustaCardVentanilla(models.Model):
+    """
+    Registro de BustaCards emitidas manualmente desde la VENTANILLA
+    (modulo /genera_bustacard, uso interno). A diferencia de TarjetaCiudadana,
+    NO requiere que el contribuyente tenga cuenta en el app: guarda los datos
+    del contribuyente directamente (desde CONTRIBUYENTES). Sirve para llevar
+    el historial de quien recibio su tarjeta impresa.
+
+    Un registro por (contribuyente, ejercicio/año): re-imprimir la misma card
+    el mismo año no genera duplicados.
+    """
+    cntrcod = models.IntegerField(db_index=True)
+    dni = models.CharField(max_length=15, db_index=True)
+    nombre = models.CharField(max_length=200)
+    codigo = models.CharField(max_length=30)
+    anio = models.IntegerField(help_text="Ejercicio de la tarjeta")
+    fecha_emision = models.DateTimeField(default=timezone.now)
+    fecha_vencimiento = models.DateField()
+    emitido_por = models.CharField(
+        max_length=150, blank=True, help_text="Usuario administrador que la emitio"
+    )
+
+    class Meta:
+        verbose_name = "BustaCard de ventanilla"
+        verbose_name_plural = "BustaCards de ventanilla"
+        ordering = ["-fecha_emision"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cntrcod", "anio"], name="uniq_bustacard_ventanilla_cntrcod_anio"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.codigo} - {self.dni} ({self.anio})"
+
+    @property
+    def vigente(self) -> bool:
+        return self.fecha_vencimiento >= timezone.now().date()
+
+
 class UsoBeneficio(models.Model):
     tarjeta = models.ForeignKey(
         TarjetaCiudadana, on_delete=models.CASCADE, related_name="usos"

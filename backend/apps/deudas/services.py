@@ -12,6 +12,9 @@ from decimal import Decimal
 from typing import TypedDict
 
 from django.db import connections
+from django.utils import timezone
+
+from apps.deudas.penalidades import calcular_penalidades_anuales
 
 
 class EstadoBustaCard:
@@ -118,6 +121,91 @@ def _cargar_direcciones_predios(predios_cods: set[int]) -> dict[int, str]:
         print(f"[predios] error cargando direcciones: {exc!r}")
         return {}
     return direcciones
+
+
+def buscar_contribuyentes(term: str, limite: int = 50) -> list[dict]:
+    """
+    Busca contribuyentes en CONTRIBUYENTES (muni_db) por:
+      - DNI / numero de documento (LIKE por prefijo)
+      - Codigo de contribuyente (CntrCod exacto)
+      - Nombres / apellidos (cada palabra debe aparecer en CntrNom)
+
+    Usado por el modulo de ventanilla (/genera_bustacard) para que un
+    administrador ubique al contribuyente. Parametrizado (sin inyeccion),
+    NOLOCK, limitado a `limite` filas.
+
+    Devuelve [{cntrcod, dni, nombre, direccion}].
+    """
+    term = (term or "").strip()
+    if len(term) < 2:
+        return []
+
+    base = (
+        "SELECT TOP (%s) CntrCod, LTRIM(RTRIM(CntrNumDoc)) AS Dni, "
+        "LTRIM(RTRIM(CntrNom)) AS Nombre, "
+        "LTRIM(RTRIM(ISNULL(CntrDirecLar, CntrDirec))) AS Direccion "
+        "FROM CONTRIBUYENTES WITH (NOLOCK) WHERE CntrAnu = ' ' "
+    )
+
+    solo_digitos = term.replace(" ", "").isdigit()
+    params: list = [limite]
+
+    if solo_digitos:
+        # DNI por prefijo o CntrCod exacto.
+        num = term.replace(" ", "")
+        base += "AND (LTRIM(RTRIM(CntrNumDoc)) LIKE %s OR CAST(CntrCod AS VARCHAR(20)) = %s) "
+        params += [f"{num}%", num]
+    else:
+        # Cada palabra del nombre debe aparecer en CntrNom.
+        palabras = [p for p in term.upper().split() if p]
+        for palabra in palabras:
+            base += "AND UPPER(CntrNom) LIKE %s "
+            params.append(f"%{palabra}%")
+
+    base += "ORDER BY CntrNom"
+
+    resultado: list[dict] = []
+    try:
+        with connections["muni_db"].cursor() as cursor:
+            cursor.execute(base, params)
+            for cntrcod, dni, nombre, direccion in cursor.fetchall():
+                resultado.append({
+                    "cntrcod": int(cntrcod),
+                    "dni": (dni or "").strip(),
+                    "nombre": (nombre or "").strip(),
+                    "direccion": (direccion or "").strip(),
+                })
+    except Exception as exc:  # pragma: no cover
+        print(f"[buscar-contribuyentes] error term={term!r}: {exc!r}")
+        return []
+    return resultado
+
+
+def obtener_contribuyente(cntrcod: int) -> dict | None:
+    """Datos basicos de un contribuyente por CntrCod (para la BustaCard)."""
+    if not cntrcod:
+        return None
+    sql = (
+        "SELECT CntrCod, LTRIM(RTRIM(CntrNumDoc)) AS Dni, "
+        "LTRIM(RTRIM(CntrNom)) AS Nombre, "
+        "LTRIM(RTRIM(ISNULL(CntrDirecLar, CntrDirec))) AS Direccion "
+        "FROM CONTRIBUYENTES WITH (NOLOCK) WHERE CntrCod = %s"
+    )
+    try:
+        with connections["muni_db"].cursor() as cursor:
+            cursor.execute(sql, [int(cntrcod)])
+            row = cursor.fetchone()
+    except Exception as exc:  # pragma: no cover
+        print(f"[obtener-contribuyente] error cntrcod={cntrcod}: {exc!r}")
+        return None
+    if not row:
+        return None
+    return {
+        "cntrcod": int(row[0]),
+        "dni": (row[1] or "").strip(),
+        "nombre": (row[2] or "").strip(),
+        "direccion": (row[3] or "").strip(),
+    }
 
 
 def listar_condiciones_por_dni(dni: str) -> list[dict]:
@@ -610,31 +698,106 @@ def listar_deudas_detalle(cntrcod: int) -> list[DeudaDetalleItem]:
         )
 
     # ----------------------------------------------------------------------
-    # FORMULARIOS: para cada (condicion, año) con predial no generado,
-    # emite un item de cargo basado en cantidad de predios pendientes ese
-    # año en esa condicion. Confirmado con PDFs SIAP reales: el formulario
-    # SI se cobra anticipadamente como parte de la "Deuda con Amnistia".
+    # PENALIDADES: formulario, reajuste e interes por (condicion, año).
+    # Se CALCULAN aqui pero NO se emiten como items separados: se fusionan
+    # dentro del item consolidado de "Impuesto Predial" (mas abajo), igual
+    # que el reporte SIAP, que muestra el predial por año con su reajuste y
+    # formulario en la misma fila.
     # ----------------------------------------------------------------------
-    cargos_formulario_emitidos: dict[tuple[int, int], float] = {}
+    hoy = timezone.localdate()
+
+    # Formulario por (cond, año) segun cantidad de predios pendientes.
+    formulario_por_cond_anio: dict[tuple[int, int], float] = {}
     for (cond, anio), predios in predios_pendientes_por_cond_anio.items():
-        n_predios = len(predios)
-        cargo = _cargo_formulario(n_predios)
-        if cargo <= 0:
+        cargo = _cargo_formulario(len(predios))
+        if cargo > 0:
+            formulario_por_cond_anio[(cond, anio)] = cargo
+
+    # Base predial pendiente por (cond, año) -> reajuste + interes.
+    predial_por_cond_anio: dict[tuple[int, int], float] = {}
+    nombres_cond_global: dict[int, str] = {}
+    for d in detalle:
+        cond = d.get("prd_con_cod")
+        if cond is not None and d.get("condicion_nombre"):
+            nombres_cond_global[int(cond)] = d["condicion_nombre"]
+        if d.get("concepto") != "1. Impuesto Predial":
             continue
-        cargos_formulario_emitidos[(cond, anio)] = cargo
+        anio = d.get("anio")
+        if cond is None or anio is None:
+            continue
+        key = (int(cond), int(anio))
+        predial_por_cond_anio[key] = (
+            predial_por_cond_anio.get(key, 0.0)
+            + float(d.get("saldo_pendiente") or 0)
+        )
+
+    reajuste_por_cond_anio: dict[tuple[int, int], float] = {}
+    interes_por_cond_anio: dict[tuple[int, int], float] = {}
+    for (cond, anio), base_anual in predial_por_cond_anio.items():
+        if base_anual <= 0.01:
+            continue
+        pen = calcular_penalidades_anuales(base_anual, anio, hoy)
+        reajuste_por_cond_anio[(cond, anio)] = float(pen.reajuste)
+        interes_por_cond_anio[(cond, anio)] = float(pen.interes)
+
+    # ----------------------------------------------------------------------
+    # CONSOLIDAR PREDIAL: un solo item por (cond, año) con
+    #   saldo = base + reajuste + formulario   (la "Deuda con Amnistia")
+    # Reemplaza a los items base por-predio y evita mostrar formulario y
+    # reajuste como filas sueltas. El desglose queda en campos separados
+    # (base_predial / reajuste_predial / formulario_predial) para la UI.
+    # ----------------------------------------------------------------------
+    predial_info: dict[tuple[int, int], dict] = {}
+    for d in detalle:
+        if d.get("concepto") != "1. Impuesto Predial":
+            continue
+        cond = d.get("prd_con_cod")
+        anio = d.get("anio")
+        if cond is None or anio is None:
+            continue
+        key = (int(cond), int(anio))
+        info = predial_info.setdefault(
+            key,
+            {"base": 0.0, "predios": set(), "condicion_nombre": d.get("condicion_nombre")},
+        )
+        info["base"] += float(d.get("saldo_pendiente") or 0)
+        if d.get("predio_cod"):
+            info["predios"].add(d.get("predio_cod"))
+        if not info["condicion_nombre"] and d.get("condicion_nombre"):
+            info["condicion_nombre"] = d.get("condicion_nombre")
+
+    # Quitar los items base de predial (se reemplazan por el consolidado).
+    detalle = [d for d in detalle if d.get("concepto") != "1. Impuesto Predial"]
+
+    for (cond, anio), info in predial_info.items():
+        base = float(info["base"])
+        if base <= 0.01:
+            continue
+        reajuste = reajuste_por_cond_anio.get((cond, anio), 0.0)
+        formulario = formulario_por_cond_anio.get((cond, anio), 0.0)
+        interes = interes_por_cond_anio.get((cond, anio), 0.0)
+        saldo = base + reajuste + formulario
+        predios = info["predios"]
+        predio_unico = next(iter(predios)) if len(predios) == 1 else None
         detalle.append({
-            "origen": "FORMULARIO PREDIAL",
-            "concepto": f"5. Formulario predial ({n_predios} predio(s))",
-            "sub_rubro": "FORMULARIO",
+            "origen": "IMPUESTO PREDIAL",
+            "concepto": "Impuesto Predial",
+            "sub_rubro": None,
             "anio": anio,
             "mes": None,
-            "predio_cod": None,
+            "predio_cod": predio_unico,
+            "predio_direccion": None,  # se completa en el enriquecimiento
             "prd_con_cod": cond,
-            "condicion_nombre": nombres_cond_por_cod.get(cond),
-            "importe_original": cargo,
+            "condicion_nombre": info["condicion_nombre"] or nombres_cond_global.get(cond),
+            "importe_original": base,
             "cargos_reajuste": 0.0,
             "pagado": 0.0,
-            "saldo_pendiente": cargo,
+            "saldo_pendiente": saldo,            # base + reajuste + formulario
+            # Desglose para la UI (no se suma; ya esta dentro de saldo_pendiente):
+            "base_predial": base,
+            "reajuste_predial": reajuste,
+            "formulario_predial": formulario,
+            "interes_referencial": interes,      # condonado por amnistia
         })
 
     # ----------------------------------------------------------------------
@@ -664,23 +827,19 @@ def listar_deudas_detalle(cntrcod: int) -> list[DeudaDetalleItem]:
             d["predio_direccion"] = None
 
     # Resumen para diagnostico
-    total_ctacte = sum(
-        d["saldo_pendiente"] for d in detalle if d["origen"] == "DEUDA REGISTRADA"
+    total_predial = sum(
+        d["saldo_pendiente"] for d in detalle if d["origen"] == "IMPUESTO PREDIAL"
     )
-    total_no_gen = sum(
-        d["saldo_pendiente"] for d in detalle
-        if d["origen"] in (
-            "PREDIAL NO GENERADO (TITULAR)",
-            "SERENAZGO NO GENERADO",
-            "ARBITRIOS NO GENERADOS",
-        )
+    total_reajuste = sum(reajuste_por_cond_anio.values())
+    total_form = sum(formulario_por_cond_anio.values())
+    total_otros = sum(
+        d["saldo_pendiente"] for d in detalle if d["origen"] != "IMPUESTO PREDIAL"
     )
-    total_form = sum(cargos_formulario_emitidos.values())
     total = sum(d["saldo_pendiente"] for d in detalle)
     print(
-        f"[detalle-deuda] cntrcod={cntrcod} ctacte={total_ctacte:.2f} "
-        f"no_generado={total_no_gen:.2f} formularios={total_form:.2f} "
-        f"total={total:.2f} formularios_emitidos={cargos_formulario_emitidos} "
+        f"[detalle-deuda] cntrcod={cntrcod} predial(c/penalidad)={total_predial:.2f} "
+        f"reajuste={total_reajuste:.2f} formularios={total_form:.2f} "
+        f"otros(arb/sere)={total_otros:.2f} total={total:.2f} "
         f"predios_pendientes={ {k: len(v) for k, v in predios_pendientes_por_cond_anio.items()} }"
     )
 

@@ -4,7 +4,7 @@ chica: solo lo que necesita el cliente.
 """
 from rest_framework import serializers
 
-from .models import Gerencia, MensajeChat
+from .models import Faq, Gerencia, MensajeChat
 
 
 class GerenciaSerializer(serializers.ModelSerializer):
@@ -13,6 +13,15 @@ class GerenciaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Gerencia
         fields = ["id", "nombre"]
+        read_only_fields = fields
+
+
+class FaqMiniSerializer(serializers.ModelSerializer):
+    """FAQ minima para los botones de menu de segundo nivel (id + pregunta)."""
+
+    class Meta:
+        model = Faq
+        fields = ["id", "pregunta"]
         read_only_fields = fields
 
 

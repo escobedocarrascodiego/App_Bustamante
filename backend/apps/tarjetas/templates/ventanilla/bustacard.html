@@ -1,0 +1,157 @@
+{% extends "ventanilla/base.html" %}
+{% block title %}BustaCard{% endblock %}
+
+{% block extra_style %}
+  .toolbar { display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; }
+
+  /* ---- Tarjeta ---- */
+  .bcard {
+    width: 430px; max-width: 100%;
+    background: #EEF0F3;
+    border: 1px solid #9AA0A6;
+    border-radius: 16px;
+    overflow: hidden;
+    margin: 0 auto;
+  }
+  .bcard-head {
+    background: var(--primary); color: #fff;
+    text-align: center; font-weight: 800;
+    font-size: 11px; letter-spacing: .5px;
+    padding: 8px 12px;
+  }
+  .bcard-body { padding: 18px; }
+  .bcard-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .bcard-brand { display:flex; align-items:center; gap:10px; }
+  .bcard-brand img { height:52px; width:52px; object-fit:contain; }
+  .bcard-muni { font-size:11px; font-weight:800; color:var(--primary); line-height:13px; letter-spacing:.4px; }
+  .bcard-right { text-align:right; }
+  .bcard-right .lbl { font-size:14px; font-weight:800; color:var(--primary); letter-spacing:1px; }
+  .bcard-right .yr { font-size:28px; font-weight:900; color:var(--accent); line-height:1; }
+  .bcard-info { margin-top:14px; }
+  .bcard-info .row { display:flex; gap:6px; font-size:12.5px; color:var(--text); margin-bottom:3px; }
+  .bcard-info .row .k { font-weight:800; min-width:84px; }
+  .bcard-barcode { margin-top:14px; }
+  .bcard-barcode .bars { height:64px; }
+  .bcard-barcode .txt { text-align:center; font-family:monospace; font-size:12px; letter-spacing:3px; font-weight:600; color:var(--text); margin-top:4px; }
+  .bcard-fv { text-align:center; font-size:11px; color:var(--muted); font-weight:700; letter-spacing:.8px; margin-top:8px; }
+
+  .benefits { width:430px; max-width:100%; margin:14px auto 0; background:#fff; border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .benefits h3 { margin:0 0 10px; color:var(--primary); font-size:15px; letter-spacing:.4px; }
+  .benefits .b { display:flex; gap:10px; align-items:flex-start; margin-bottom:8px; }
+  .benefits .b .n { font-weight:700; font-size:13.5px; }
+  .benefits .b .h { font-size:12px; color:var(--muted); }
+  .benefits .nota { font-size:12px; color:var(--muted); font-style:italic; }
+  .benefits .imp { background:var(--surface); border-left:3px solid var(--accent); padding:8px; border-radius:6px; font-size:12px; font-weight:700; margin-top:8px; }
+  .benefits .foot { border-top:1px solid var(--border); margin-top:10px; padding-top:8px; text-align:center; }
+  .benefits .foot .area { font-size:12px; font-weight:700; }
+  .benefits .foot .gr { font-size:13px; font-weight:800; color:var(--accent); font-style:italic; }
+
+  .total-deuda { font-size:26px; font-weight:800; color:var(--danger); }
+
+  @media print {
+    .topbar, .toolbar, .no-print { display:none !important; }
+    body, .wrap { background:#fff; margin:0; padding:0; }
+    .wrap { max-width:none; }
+    .bcard, .benefits { box-shadow:none; }
+  }
+{% endblock %}
+
+{% block content %}
+<div class="toolbar no-print">
+  <a class="btn secondary" href="{% url 'ventanilla_buscar' %}">&larr; Nueva búsqueda</a>
+  {% if al_dia %}
+    <button class="btn accent" onclick="window.print()">🖨 Imprimir</button>
+    <a class="btn" href="{% url 'ventanilla_bustacard_pdf' contribuyente.cntrcod %}">⬇ Descargar PDF</a>
+  {% endif %}
+</div>
+
+{% if no_encontrado %}
+  <div class="card-panel">
+    <p>No se encontró el contribuyente con código <strong>{{ cntrcod }}</strong>.</p>
+  </div>
+
+{% elif al_dia %}
+  {# ---------- BustaCard imprimible ---------- #}
+  <div class="bcard">
+    <div class="bcard-head">TARJETA DIGITAL DEL BUEN CONTRIBUYENTE BUSTAMANTINO</div>
+    <div class="bcard-body">
+      <div class="bcard-top">
+        <div class="bcard-brand">
+          {% if logo %}<img src="{{ logo }}" alt="logo" />{% endif %}
+          <div class="bcard-muni">JOSÉ LUIS<br/>BUSTAMANTE<br/>Y RIVERO</div>
+        </div>
+        <div class="bcard-right">
+          <div class="lbl">BUSTACARD</div>
+          <div class="yr">{{ anio }}</div>
+        </div>
+      </div>
+
+      <div class="bcard-info">
+        <div class="row"><span class="k">CÓDIGO</span><span>: {{ codigo }}</span></div>
+        <div class="row"><span class="k">NOMBRE</span><span>: {{ contribuyente.nombre }}</span></div>
+        <div class="row"><span class="k">DNI</span><span>: {{ contribuyente.dni }}</span></div>
+        {% if contribuyente.direccion %}<div class="row"><span class="k">DIRECCIÓN</span><span>: {{ contribuyente.direccion }}</span></div>{% endif %}
+      </div>
+
+      <div class="bcard-barcode">
+        <div class="bars">{{ barcode_svg }}</div>
+        {% if barcode_texto %}<div class="txt">{{ barcode_texto }}</div>{% endif %}
+      </div>
+      <div class="bcard-fv">F. V. {{ fecha_vencimiento|date:"d-m-Y" }}</div>
+    </div>
+  </div>
+
+  <div class="benefits">
+    <h3>TUS BENEFICIOS</h3>
+    <div class="b"><div>🏊</div><div><div class="n">Ingreso Libre a Piscina</div><div class="h">(Martes - Viernes)</div></div></div>
+    <div class="b"><div>🌳</div><div><div class="n">Ingreso Libre a Parque «Ccoritos»</div><div class="h">(Martes - Viernes)</div></div></div>
+    <p class="nota">Incluye Titular, Cónyuge y 2 menores, o Adulto Mayor con acompañante.</p>
+    <div class="imp">IMPORTANTE: Mostrar DNI físico + BustaCard.</div>
+    <div class="foot">
+      <div class="area">Gerencia de Administración Tributaria</div>
+      <div class="gr">¡Gracias por tu contribución!</div>
+    </div>
+  </div>
+
+{% else %}
+  {# ---------- Con deuda: no procede la card ---------- #}
+  <div class="card-panel">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h2 style="margin:0;color:var(--primary);">{{ contribuyente.nombre }}</h2>
+        <p class="muted" style="margin:4px 0 0;">DNI {{ contribuyente.dni }} · Código {{ contribuyente.cntrcod }}</p>
+      </div>
+      <span class="badge bad">No procede BustaCard</span>
+    </div>
+
+    <p style="margin-top:16px;">{{ verificacion.mensaje }}</p>
+
+    {% if deuda_total %}
+      <p class="muted" style="margin-bottom:2px;">Deuda total pendiente</p>
+      <div class="total-deuda">S/ {{ deuda_total|floatformat:2 }}</div>
+    {% endif %}
+
+    {% if items %}
+      <table style="margin-top:16px;">
+        <thead>
+          <tr><th>Concepto</th><th>Año</th><th>Predio</th><th style="text-align:right;">Saldo</th></tr>
+        </thead>
+        <tbody>
+          {% for it in items %}
+          <tr>
+            <td>{{ it.concepto }}</td>
+            <td>{{ it.anio|default:"—" }}</td>
+            <td class="muted" style="font-size:12px;">{{ it.predio_direccion|default:"—" }}</td>
+            <td style="text-align:right;">S/ {{ it.saldo_pendiente|floatformat:2 }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    <p class="muted" style="margin-top:16px;font-size:13px;">
+      El contribuyente debe regularizar su deuda para poder emitir la BustaCard.
+    </p>
+  </div>
+{% endif %}
+{% endblock %}

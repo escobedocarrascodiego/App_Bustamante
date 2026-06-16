@@ -33,7 +33,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { chatbotApi } from '@/services/endpoints';
-import type { GerenciaChatbot, RolMensajeChat } from '@/services/types';
+import type {
+  FaqChatbot,
+  GerenciaChatbot,
+  RolMensajeChat,
+} from '@/services/types';
 
 // ----- Constantes del feature -----
 const CHAT_PRIMARY = '#185FA5'; // azul header y burbuja usuario
@@ -59,6 +63,10 @@ type Mensaje = {
   timestamp: Date;
   es_escribiendo?: boolean;
   es_selector_gerencias?: boolean;
+  // Menu de FAQs (segundo nivel): botones con las preguntas frecuentes de la
+  // gerencia + opcion "Escribir mi propia consulta".
+  es_selector_faqs?: boolean;
+  faqs?: FaqChatbot[];
 };
 
 function uid(): string {
@@ -91,6 +99,9 @@ export default function ChatScreen() {
   const [gerencias, setGerencias] = useState<GerenciaChatbot[]>([]);
   const [gerenciaSeleccionada, setGerenciaSeleccionada] =
     useState<GerenciaChatbot | null>(null);
+  // Menu de FAQs: el input de texto queda bloqueado hasta que el vecino
+  // elija "Escribir mi propia consulta". Asi le damos el camino hecho.
+  const [modoTexto, setModoTexto] = useState(false);
 
   // Inicia la sesion + carga gerencias al montar
   useEffect(() => {
@@ -128,10 +139,11 @@ export default function ChatScreen() {
     return () => clearTimeout(t);
   }, [mensajes, esperando, etapa]);
 
-  const seleccionarGerencia = (gerencia: GerenciaChatbot) => {
+  const seleccionarGerencia = async (gerencia: GerenciaChatbot) => {
     if (esperando) return;
     setGerenciaSeleccionada(gerencia);
     setEtapa('conversacion');
+    setModoTexto(false);
     const ahora = new Date();
     setMensajes((prev) => [
       ...prev,
@@ -141,19 +153,97 @@ export default function ChatScreen() {
         contenido: gerencia.nombre,
         timestamp: ahora,
       },
-      {
-        id: uid(),
-        rol: 'bot',
-        contenido: `Perfecto, te ayudo con consultas sobre ${gerencia.nombre}. ¿Cuál es tu pregunta?`,
-        timestamp: ahora,
-      },
     ]);
+
+    // Cargar las FAQs de la gerencia para mostrarlas como botones (menu de
+    // segundo nivel). Si no hay FAQs o falla, habilitamos el texto libre.
+    setEsperando(true);
+    try {
+      const data = await chatbotApi.faqsDeGerencia(gerencia.id);
+      const faqs = data.faqs ?? [];
+      if (faqs.length > 0) {
+        setMensajes((prev) => [
+          ...prev,
+          {
+            id: uid(),
+            rol: 'bot',
+            contenido: `Has seleccionado ${gerencia.nombre}. ¿Qué deseas consultar?`,
+            timestamp: new Date(),
+            es_selector_faqs: true,
+            faqs,
+          },
+        ]);
+      } else {
+        setModoTexto(true);
+        setMensajes((prev) => [
+          ...prev,
+          {
+            id: uid(),
+            rol: 'bot',
+            contenido: `Perfecto, te ayudo con ${gerencia.nombre}. Escribe tu consulta.`,
+            timestamp: new Date(),
+          },
+        ]);
+      }
+    } catch {
+      setModoTexto(true);
+      setMensajes((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          rol: 'bot',
+          contenido: `Perfecto, te ayudo con ${gerencia.nombre}. ¿Cuál es tu pregunta?`,
+          timestamp: new Date(),
+        },
+      ]);
+    } finally {
+      setEsperando(false);
+    }
+  };
+
+  // Responde directamente al presionar un boton de FAQ (cero error de match).
+  const seleccionarFaq = async (faq: FaqChatbot) => {
+    if (esperando) return;
+    setMensajes((prev) => [
+      ...prev,
+      { id: uid(), rol: 'usuario', contenido: faq.pregunta, timestamp: new Date() },
+    ]);
+    setEsperando(true);
+    try {
+      if (!sesionRef.current) {
+        const nueva = await chatbotApi.nuevaSesion();
+        sesionRef.current = nueva.sesion_id;
+      }
+      const resp = await chatbotApi.enviarMensaje(
+        sesionRef.current,
+        faq.pregunta,
+        gerenciaSeleccionada?.id,
+        faq.id,
+      );
+      setMensajes((prev) => [
+        ...prev,
+        { id: uid(), rol: 'bot', contenido: resp.respuesta, timestamp: new Date() },
+      ]);
+    } catch {
+      setMensajes((prev) => [
+        ...prev,
+        { id: uid(), rol: 'bot', contenido: MENSAJE_ERROR_RED, timestamp: new Date() },
+      ]);
+    } finally {
+      setEsperando(false);
+    }
+  };
+
+  const habilitarTexto = () => {
+    if (esperando) return;
+    setModoTexto(true);
   };
 
   const volverASeleccionGerencia = () => {
     if (esperando) return;
     setGerenciaSeleccionada(null);
     setEtapa('seleccion_gerencia');
+    setModoTexto(false);
     setMensajes((prev) => [
       ...prev,
       {
@@ -233,7 +323,9 @@ export default function ChatScreen() {
     });
   }
 
-  const inputBloqueado = etapa !== 'conversacion';
+  // El input se habilita solo en conversacion Y cuando el vecino eligio
+  // "Escribir mi propia consulta" (modoTexto). Mientras tanto usa los botones.
+  const inputBloqueado = etapa !== 'conversacion' || !modoTexto;
   const sendBtnDeshabilitado =
     inputBloqueado || esperando || inputText.trim().length === 0;
 
@@ -266,6 +358,9 @@ export default function ChatScreen() {
               gerencias={gerencias}
               onSeleccionarGerencia={seleccionarGerencia}
               seleccionDeshabilitada={esperando || etapa !== 'seleccion_gerencia'}
+              onSeleccionarFaq={seleccionarFaq}
+              onEscribir={habilitarTexto}
+              faqsDeshabilitado={esperando}
             />
           )}
           onContentSizeChange={() =>
@@ -300,9 +395,11 @@ export default function ChatScreen() {
             value={inputText}
             onChangeText={setInputText}
             placeholder={
-              inputBloqueado
+              etapa !== 'conversacion'
                 ? 'Selecciona una gerencia primero...'
-                : 'Escribe tu consulta...'
+                : !modoTexto
+                  ? 'Elige una opción de arriba…'
+                  : 'Escribe tu consulta...'
             }
             placeholderTextColor="#999"
             style={[styles.textInput, inputBloqueado && styles.textInputBloqueado]}
@@ -335,6 +432,9 @@ type BurbujaProps = {
   gerencias: GerenciaChatbot[];
   onSeleccionarGerencia: (g: GerenciaChatbot) => void;
   seleccionDeshabilitada: boolean;
+  onSeleccionarFaq: (f: FaqChatbot) => void;
+  onEscribir: () => void;
+  faqsDeshabilitado: boolean;
 };
 
 function BurbujaMensaje({
@@ -342,6 +442,9 @@ function BurbujaMensaje({
   gerencias,
   onSeleccionarGerencia,
   seleccionDeshabilitada,
+  onSeleccionarFaq,
+  onEscribir,
+  faqsDeshabilitado,
 }: BurbujaProps) {
   if (mensaje.rol === 'usuario') {
     return (
@@ -381,7 +484,19 @@ function BurbujaMensaje({
             />
           ) : null}
 
-          {!mensaje.es_escribiendo && !mensaje.es_selector_gerencias ? (
+          {/* Menu de FAQs (segundo nivel) + opcion de escribir */}
+          {mensaje.es_selector_faqs && mensaje.faqs ? (
+            <SelectorFaqs
+              faqs={mensaje.faqs}
+              onSeleccionar={onSeleccionarFaq}
+              onEscribir={onEscribir}
+              deshabilitado={faqsDeshabilitado}
+            />
+          ) : null}
+
+          {!mensaje.es_escribiendo &&
+          !mensaje.es_selector_gerencias &&
+          !mensaje.es_selector_faqs ? (
             <Text style={[styles.timestamp, styles.timestampIzquierda]}>
               {formatearHora(mensaje.timestamp)}
             </Text>
@@ -423,6 +538,55 @@ function SelectorGerencias({
           </Text>
         </Pressable>
       ))}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Selector de FAQs (menu de segundo nivel) + "Escribir mi propia consulta"
+// ---------------------------------------------------------------------------
+function SelectorFaqs({
+  faqs,
+  onSeleccionar,
+  onEscribir,
+  deshabilitado,
+}: {
+  faqs: FaqChatbot[];
+  onSeleccionar: (f: FaqChatbot) => void;
+  onEscribir: () => void;
+  deshabilitado: boolean;
+}) {
+  if (faqs.length === 0) return null;
+  return (
+    <View style={styles.selectorWrap}>
+      {faqs.map((f) => (
+        <Pressable
+          key={f.id}
+          onPress={() => onSeleccionar(f)}
+          disabled={deshabilitado}
+          style={({ pressed }) => [
+            styles.selectorBtn,
+            pressed && !deshabilitado && styles.selectorBtnPressed,
+            deshabilitado && styles.selectorBtnDisabled,
+          ]}
+          accessibilityLabel={`Consultar ${f.pregunta}`}>
+          <Text style={styles.selectorBtnText} numberOfLines={3}>
+            {f.pregunta}
+          </Text>
+        </Pressable>
+      ))}
+      <Pressable
+        onPress={onEscribir}
+        disabled={deshabilitado}
+        style={({ pressed }) => [
+          styles.escribirBtn,
+          pressed && !deshabilitado && { opacity: 0.7 },
+          deshabilitado && styles.selectorBtnDisabled,
+        ]}
+        accessibilityLabel="Escribir mi propia consulta">
+        <MaterialCommunityIcons name="pencil-outline" size={15} color="#666" />
+        <Text style={styles.escribirBtnText}>Escribir mi propia consulta…</Text>
+      </Pressable>
     </View>
   );
 }
@@ -646,6 +810,22 @@ const styles = StyleSheet.create({
   selectorBtnText: {
     color: CHAT_PRIMARY,
     fontSize: 14,
+    fontWeight: '600',
+  },
+  escribirBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 2,
+  },
+  escribirBtnText: {
+    color: '#666',
+    fontSize: 13,
     fontWeight: '600',
   },
 

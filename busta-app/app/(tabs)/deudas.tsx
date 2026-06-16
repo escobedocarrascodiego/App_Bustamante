@@ -30,6 +30,7 @@ type Grupo = {
 };
 
 const ORIGEN_TONO: Record<string, Parameters<typeof MuniBadge>[0]['tone']> = {
+  'IMPUESTO PREDIAL': 'danger',
   'DEUDA REGISTRADA': 'danger',
   'PREDIAL NO GENERADO (TITULAR)': 'warning',
   'SERENAZGO NO GENERADO': 'warning',
@@ -40,6 +41,7 @@ const ORIGEN_ICON: Record<
   string,
   React.ComponentProps<typeof MaterialCommunityIcons>['name']
 > = {
+  'IMPUESTO PREDIAL': 'home-city-outline',
   'DEUDA REGISTRADA': 'file-document-alert-outline',
   'PREDIAL NO GENERADO (TITULAR)': 'home-city-outline',
   'SERENAZGO NO GENERADO': 'shield-outline',
@@ -207,6 +209,13 @@ function DetalleFila({ item }: { item: DeudaDetalleItem }) {
   const periodo = formatearPeriodo(item.anio, item.mes);
   const muestraReajuste = Number(item.cargos_reajuste) > 0;
   const muestraPagado = Number(item.pagado) > 0;
+
+  // Desglose del item consolidado de Impuesto Predial (base + reajuste + form).
+  const esPredial = item.origen === 'IMPUESTO PREDIAL';
+  const reajustePredial = Number(item.reajuste_predial ?? 0);
+  const formularioPredial = Number(item.formulario_predial ?? 0);
+  const basePredial = Number(item.base_predial ?? 0);
+
   return (
     <View style={styles.fila}>
       <View style={{ flex: 1, gap: 2 }}>
@@ -227,12 +236,33 @@ function DetalleFila({ item }: { item: DeudaDetalleItem }) {
             </Text>
           </View>
         ) : null}
-        {muestraReajuste || muestraPagado ? (
+        {esPredial ? (
+          <Text style={styles.metaFila}>
+            {`Base S/ ${basePredial.toFixed(2)}`}
+            {reajustePredial > 0 ? ` · Reajuste S/ ${reajustePredial.toFixed(2)}` : ''}
+            {formularioPredial > 0 ? ` · Formulario S/ ${formularioPredial.toFixed(2)}` : ''}
+          </Text>
+        ) : null}
+        {!esPredial && (muestraReajuste || muestraPagado) ? (
           <Text style={styles.metaFila}>
             {muestraReajuste ? `Reajuste S/ ${item.cargos_reajuste.toFixed(2)}` : ''}
             {muestraReajuste && muestraPagado ? ' · ' : ''}
             {muestraPagado ? `Pagado S/ ${item.pagado.toFixed(2)}` : ''}
           </Text>
+        ) : null}
+        {typeof item.interes_referencial === 'number' &&
+        item.interes_referencial > 0 ? (
+          <View style={styles.interesRow}>
+            <MaterialCommunityIcons
+              name="clock-alert-outline"
+              size={12}
+              color={MunicipalityColors.success}
+            />
+            <Text style={styles.interesText}>
+              Interés moratorio S/ {item.interes_referencial.toFixed(2)} —
+              condonado por amnistía
+            </Text>
+          </View>
         ) : null}
       </View>
       <View style={{ alignItems: 'flex-end' }}>
@@ -402,6 +432,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: MunicipalityColors.textMuted,
     fontStyle: 'italic',
+    lineHeight: 14,
+  },
+  interesRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 3,
+    marginTop: 1,
+  },
+  interesText: {
+    flex: 1,
+    fontSize: 11,
+    color: MunicipalityColors.success,
     lineHeight: 14,
   },
   saldoLabel: {

@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from .models import Beneficio, TarjetaCiudadana, UsoBeneficio
+from .models import (
+    Beneficio,
+    BustaCardVentanilla,
+    TarjetaCiudadana,
+    UsoBeneficio,
+)
 
 
 @admin.register(Beneficio)
@@ -21,3 +26,14 @@ class TarjetaAdmin(admin.ModelAdmin):
 class UsoBeneficioAdmin(admin.ModelAdmin):
     list_display = ("tarjeta", "beneficio", "fecha")
     list_filter = ("beneficio",)
+
+
+@admin.register(BustaCardVentanilla)
+class BustaCardVentanillaAdmin(admin.ModelAdmin):
+    list_display = (
+        "codigo", "dni", "nombre", "anio",
+        "fecha_emision", "fecha_vencimiento", "emitido_por",
+    )
+    list_filter = ("anio",)
+    search_fields = ("dni", "nombre", "codigo", "cntrcod")
+    readonly_fields = ("fecha_emision",)

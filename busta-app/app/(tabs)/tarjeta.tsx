@@ -70,11 +70,13 @@ export default function TarjetaScreen() {
     }
   };
 
-  const puedeEmitir = estadoMuni?.estado_busta_card === 'AL_DIA';
-  // La tarjeta solo se muestra si el contribuyente sigue al dia en SIAP,
-  // asi si revierten un pago la tarjeta se "bloquea" automaticamente al recargar.
-  const tarjetaValida = tarjeta && estadoMuni?.estado_busta_card === 'AL_DIA';
-  const tarjetaInvalidada = tarjeta && estadoMuni && estadoMuni.estado_busta_card !== 'AL_DIA';
+  const alDia = estadoMuni?.estado_busta_card === 'AL_DIA';
+  const puedeEmitir = alDia;
+  // La tarjeta es valida solo si BD dice vigente (activa, NO bloqueada, NO
+  // vencida) Y ademas SIAP la reporta al dia. Asi respetamos tanto los
+  // bloqueos/vencimientos de la base como la deuda en tiempo real.
+  const tarjetaValida = !!tarjeta && tarjeta.vigente && alDia;
+  const tarjetaInvalidada = !!tarjeta && !tarjetaValida;
 
   return (
     <View style={{ flex: 1, backgroundColor: MunicipalityColors.surface }}>
@@ -96,7 +98,7 @@ export default function TarjetaScreen() {
           loading ? null : tarjetaValida ? (
             <TarjetaVisual tarjeta={tarjeta!} ciudadano={ciudadano} />
           ) : tarjetaInvalidada ? (
-            <TarjetaBloqueada estado={estadoMuni!} />
+            <TarjetaBloqueada tarjeta={tarjeta!} estadoMuni={estadoMuni} alDia={alDia} />
           ) : (
             <MuniCard style={{ gap: Spacing.md }}>
               <Text style={styles.titleCard}>Aun no tienes tarjeta ciudadana</Text>
@@ -173,23 +175,71 @@ export default function TarjetaScreen() {
   );
 }
 
-function TarjetaBloqueada({ estado }: { estado: DeudaMuniResult }) {
+function estaVencida(fecha: string): boolean {
+  if (!fecha) return false;
+  const [y, m, d] = fecha.split('-').map(Number);
+  if (!y || !m || !d) return false;
+  const fv = new Date(y, m - 1, d); // medianoche local
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  return fv < hoy;
+}
+
+function TarjetaBloqueada({
+  tarjeta,
+  estadoMuni,
+  alDia,
+}: {
+  tarjeta: Tarjeta;
+  estadoMuni: DeudaMuniResult | null;
+  alDia: boolean;
+}) {
+  // Determinamos el motivo de invalidez por prioridad:
+  //  1) deuda (no al dia)  2) vencida  3) bloqueo administrativo
+  let titulo = 'Tarjeta inactiva';
+  let descripcion =
+    'Tu tarjeta ciudadana no está vigente. Acércate a la municipalidad para regularizar.';
+  let badge = 'Inactiva';
+  let mensajeBox: string | null = null;
+  let monto = 0;
+
+  if (!alDia && estadoMuni) {
+    titulo = 'Tarjeta inactiva por deuda';
+    descripcion =
+      'Detectamos una deuda pendiente en tu cuenta. Tu tarjeta queda inactiva ' +
+      'hasta que regularices tu situación tributaria.';
+    badge = 'Con deuda';
+    mensajeBox = estadoMuni.mensaje;
+    monto = estadoMuni.deuda_total;
+  } else if (estaVencida(tarjeta.fecha_vencimiento)) {
+    titulo = 'Tarjeta vencida';
+    descripcion =
+      'Tu tarjeta ciudadana venció. Acércate a la municipalidad para renovarla.';
+    badge = 'Vencida';
+  } else if (tarjeta.bloqueada) {
+    titulo = 'Tarjeta bloqueada';
+    descripcion =
+      'Tu tarjeta fue bloqueada por la municipalidad. Consulta en ' +
+      'plataforma para más información.';
+    badge = 'Bloqueada';
+    mensajeBox = tarjeta.motivo_bloqueo || null;
+  }
+
   return (
     <MuniCard style={{ gap: Spacing.md, borderColor: MunicipalityColors.danger, borderWidth: 1 }}>
       <View style={styles.row}>
-        <Text style={styles.titleCard}>Tarjeta inactiva</Text>
-        <MuniBadge label="Bloqueada" tone="danger" />
+        <Text style={styles.titleCard}>{titulo}</Text>
+        <MuniBadge label={badge} tone="danger" />
       </View>
-      <Text style={styles.muted}>
-        Detectamos una deuda pendiente en tu cuenta. Tu tarjeta ciudadana queda
-        temporalmente inactiva hasta que regularices tu situacion tributaria.
-      </Text>
-      <View style={styles.estadoBox}>
-        <Text style={styles.muted}>{estado.mensaje}</Text>
-        {estado.deuda_total > 0 ? (
-          <Text style={styles.deudaMonto}>S/ {estado.deuda_total.toFixed(2)}</Text>
-        ) : null}
-      </View>
+      <Text style={styles.muted}>{descripcion}</Text>
+      {mensajeBox || monto > 0 ? (
+        <View style={styles.estadoBox}>
+          {mensajeBox ? <Text style={styles.muted}>{mensajeBox}</Text> : null}
+          {monto > 0 ? (
+            <Text style={styles.deudaMonto}>S/ {monto.toFixed(2)}</Text>
+          ) : null}
+        </View>
+      ) : null}
     </MuniCard>
   );
 }

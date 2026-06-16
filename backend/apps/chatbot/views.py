@@ -18,22 +18,22 @@ Diseño:
 """
 from __future__ import annotations
 
-import re
-
-from django.db import connection, models
+from django.db import models
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from .matching import buscar_faq
 from .models import ConversacionSesion, Faq, Gerencia, MensajeChat
-from .serializers import GerenciaSerializer
+from .serializers import FaqMiniSerializer, GerenciaSerializer
 
 RESPUESTA_NO_ENCONTRADA = (
-    "No encontré información sobre eso. Te recomiendo comunicarte con la "
-    "Gerencia correspondiente o llamar a nuestra central telefónica en "
-    "horario de lunes a viernes de 8:00 a 16:30."
+    "No encontré una respuesta exacta para eso. Intenta con otras palabras "
+    "(por ejemplo el nombre del trámite) o elige una de las preguntas "
+    "frecuentes del menú. También puedes llamar a nuestra central en horario "
+    "de lunes a viernes de 8:00 a 16:30."
 )
 
 
@@ -59,110 +59,8 @@ def _user_si_autenticado(request):
     return user if getattr(user, "is_authenticated", False) else None
 
 
-# Caracteres permitidos en cada palabra de la query Full-Text: letras
-# (incluyendo acentos), digitos, guion. Cualquier otra cosa se descarta.
-_PALABRA_RE = re.compile(r"[\wáéíóúñÁÉÍÓÚÑ\-]+", re.UNICODE)
-
-
-def _palabras_clave(texto: str, min_len: int = 3, max_palabras: int = 12) -> list[str]:
-    """Extrae palabras "buscables" del mensaje del usuario."""
-    if not texto:
-        return []
-    crudas = _PALABRA_RE.findall(texto.lower())
-    # Sanea comillas y dedupe preservando orden
-    vistas: set[str] = set()
-    resultado: list[str] = []
-    for w in crudas:
-        if len(w) < min_len:
-            continue
-        if w in vistas:
-            continue
-        vistas.add(w)
-        resultado.append(w)
-        if len(resultado) >= max_palabras:
-            break
-    return resultado
-
-
-def _buscar_faq_fulltext(
-    palabras: list[str], gerencia_id: int | None = None
-) -> Faq | None:
-    """
-    Busqueda principal: CONTAINS() de SQL Server sobre (pregunta, keywords).
-    Construye la expresion '"palabra1" OR "palabra2" OR ...' y ordena por
-    veces_consultada DESC para priorizar las preguntas mas populares. Si
-    `gerencia_id` esta seteado, restringe la busqueda a esa gerencia.
-    Devuelve None si falla por cualquier motivo (sin Full-Text, sintaxis, etc).
-    """
-    if not palabras:
-        return None
-    expr = " OR ".join(f'"{w}"' for w in palabras)
-
-    if gerencia_id is not None:
-        sql = (
-            "SELECT TOP 1 id FROM chatbot_faq "
-            "WHERE activo = 1 "
-            "  AND gerencia_id = %s "
-            "  AND CONTAINS((pregunta, keywords), %s) "
-            "ORDER BY veces_consultada DESC, id ASC"
-        )
-        params: list = [gerencia_id, expr]
-    else:
-        sql = (
-            "SELECT TOP 1 id FROM chatbot_faq "
-            "WHERE activo = 1 "
-            "  AND CONTAINS((pregunta, keywords), %s) "
-            "ORDER BY veces_consultada DESC, id ASC"
-        )
-        params = [expr]
-
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(sql, params)
-            row = cursor.fetchone()
-    except Exception as exc:  # pragma: no cover
-        print(f"[chatbot] CONTAINS() fallo: {exc!r} — caemos al fallback LIKE.")
-        return None
-    if not row:
-        return None
-    return Faq.objects.filter(id=row[0]).first()
-
-
-def _buscar_faq_like(
-    palabras: list[str], gerencia_id: int | None = None
-) -> Faq | None:
-    """
-    Fallback cuando Full-Text no esta disponible. Hace OR de LIKE sobre
-    pregunta y keywords. Menos eficiente pero funciona sin indice. Si
-    `gerencia_id` esta seteado, restringe la busqueda a esa gerencia.
-    """
-    if not palabras:
-        return None
-    qs = Faq.objects.filter(activo=True)
-    if gerencia_id is not None:
-        qs = qs.filter(gerencia_id=gerencia_id)
-    cond = models.Q()
-    for w in palabras:
-        cond |= models.Q(pregunta__icontains=w) | models.Q(keywords__icontains=w)
-    return (
-        qs.filter(cond)
-        .order_by("-veces_consultada", "id")
-        .first()
-    )
-
-
-def buscar_faq(texto_usuario: str, gerencia_id: int | None = None) -> Faq | None:
-    """
-    API publica de busqueda: intenta Full-Text, cae a LIKE.
-    Si `gerencia_id` esta seteado, filtra a esa gerencia.
-    """
-    palabras = _palabras_clave(texto_usuario)
-    if not palabras:
-        return None
-    faq = _buscar_faq_fulltext(palabras, gerencia_id=gerencia_id)
-    if faq:
-        return faq
-    return _buscar_faq_like(palabras, gerencia_id=gerencia_id)
+# La busqueda de FAQs vive en apps.chatbot.matching (scoring por tokens).
+# `buscar_faq` se importa arriba.
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +78,32 @@ class GerenciasView(APIView):
         gerencias = Gerencia.objects.filter(activo=True).order_by("orden", "nombre")
         data = GerenciaSerializer(gerencias, many=True).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+class GerenciaFaqsView(APIView):
+    """
+    GET /api/chatbot/gerencias/<id>/faqs/ — preguntas frecuentes de una
+    gerencia (id + pregunta). El frontend las muestra como BOTONES de menu de
+    segundo nivel: al presionar uno, llama a /mensaje/ con `faq_id` y recibe la
+    respuesta directa (sin que el vecino tenga que escribir).
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes: list = []
+
+    def get(self, request, gerencia_id: int):
+        if not Gerencia.objects.filter(id=gerencia_id, activo=True).exists():
+            return Response(
+                {"detail": "Gerencia no encontrada o inactiva."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        faqs = (
+            Faq.objects.filter(gerencia_id=gerencia_id, activo=True)
+            .order_by("-veces_consultada", "id")
+        )
+        data = FaqMiniSerializer(faqs, many=True).data
+        return Response({"gerencia_id": gerencia_id, "faqs": data},
+                        status=status.HTTP_200_OK)
 
 
 class NuevaSesionView(APIView):
@@ -244,8 +168,25 @@ class MensajeView(APIView):
             contenido=mensaje,
         )
 
-        # 2. Buscar respuesta (con filtro de gerencia si llego)
-        faq = buscar_faq(mensaje, gerencia_id=gerencia_id)
+        # 2. Resolver la FAQ:
+        #    a) Si viene `faq_id` (el usuario presiono un boton del menu de
+        #       segundo nivel) respondemos esa FAQ directamente — cero error.
+        #    b) Si no, usamos el scoring por tokens sobre la gerencia.
+        faq = None
+        faq_id_raw = request.data.get("faq_id")
+        if faq_id_raw is not None:
+            try:
+                faq_id = int(faq_id_raw)
+            except (TypeError, ValueError):
+                faq_id = None
+            if faq_id is not None:
+                qs = Faq.objects.filter(id=faq_id, activo=True)
+                if gerencia_id is not None:
+                    qs = qs.filter(gerencia_id=gerencia_id)
+                faq = qs.first()
+
+        if faq is None:
+            faq = buscar_faq(mensaje, gerencia_id=gerencia_id)
 
         if faq is not None:
             respuesta = faq.respuesta

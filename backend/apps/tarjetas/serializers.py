@@ -41,6 +41,7 @@ class TarjetaSerializer(serializers.ModelSerializer):
             "fecha_vencimiento",
             "activa",
             "bloqueada",
+            "motivo_bloqueo",
             "vigente",
         ]
         read_only_fields = fields

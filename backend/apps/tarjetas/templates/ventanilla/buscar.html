@@ -1,0 +1,57 @@
+{% extends "ventanilla/base.html" %}
+{% block title %}Buscar contribuyente — BustaCard{% endblock %}
+
+{% block content %}
+<div class="card-panel">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <h2 style="margin:0;color:var(--primary);">Buscar contribuyente</h2>
+    <a class="btn secondary" href="{% url 'ventanilla_historial' %}">📋 Historial de BustaCards</a>
+  </div>
+  <p class="muted">
+    Ingresa el <strong>DNI</strong>, el <strong>código de contribuyente</strong>
+    o los <strong>nombres y apellidos</strong>.
+  </p>
+  <form method="get" action="" style="display:flex;gap:10px;flex-wrap:wrap;">
+    <input
+      type="text" name="q" value="{{ term }}" autofocus
+      placeholder="Ej: 02008230  ·  10871  ·  VIZA GONZALES NELIDA"
+      style="flex:1;min-width:260px;padding:11px 14px;border:1px solid var(--border);border-radius:8px;font-size:15px;" />
+    <button type="submit" class="btn">Buscar</button>
+  </form>
+</div>
+
+{% if busco %}
+  <div class="card-panel" style="margin-top:18px;">
+    {% if resultados %}
+      <p class="muted" style="margin-top:0;">{{ resultados|length }} resultado(s) para «{{ term }}»</p>
+      <table>
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>DNI</th>
+            <th>Nombre / Razón social</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in resultados %}
+          <tr>
+            <td>{{ c.cntrcod }}</td>
+            <td>{{ c.dni }}</td>
+            <td>
+              {{ c.nombre }}
+              {% if c.direccion %}<br /><span class="muted" style="font-size:12px;">{{ c.direccion }}</span>{% endif %}
+            </td>
+            <td style="text-align:right;white-space:nowrap;">
+              <a class="btn" href="{% url 'ventanilla_bustacard' c.cntrcod %}">Generar BustaCard</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="muted" style="margin:0;">No se encontraron contribuyentes para «{{ term }}».</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}

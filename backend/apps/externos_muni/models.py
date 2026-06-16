@@ -68,3 +68,79 @@ class Contribuyentes(models.Model):
 
     def __str__(self):
         return f"{self.cntrcod} - {self.cntrnom}"
+
+
+# ---------------------------------------------------------------------------
+# Tablas de referencia para penalidades tributarias (Reajuste e Interes)
+# Son tablas historicas append-only (un valor por mes/trimestre desde 1996).
+# Se usan en apps.deudas.penalidades para calcular el Impuesto Predial.
+# ---------------------------------------------------------------------------
+
+
+class TabIpm(models.Model):
+    """Indice de Precios al por Mayor (TABIPM). Un valor por (anio, mes)."""
+
+    ipmcod = models.IntegerField(db_column="IPMCod", primary_key=True)
+    ipmano = models.SmallIntegerField(db_column="IPMAno")
+    ipmmes = models.SmallIntegerField(db_column="IPMMes")
+    ipmvalor = models.DecimalField(
+        db_column="IPMValor", max_digits=14, decimal_places=6
+    )
+    ipmanu = models.CharField(
+        db_column="IPMAnu", max_length=1, blank=True, null=True
+    )
+
+    class Meta:
+        managed = False
+        db_table = "TABIPM"
+
+    def __str__(self):
+        return f"IPM {self.ipmano}-{self.ipmmes:02d}: {self.ipmvalor}"
+
+
+class TabReajuste(models.Model):
+    """
+    Factores estaticos de reajuste por (anio, trimestre) para años cerrados.
+    ReajFact esta expresado en PORCENTAJE (ej. 1.59826 = 1.59826%).
+    """
+
+    reajcod = models.IntegerField(db_column="ReajCod", primary_key=True)
+    reajano = models.SmallIntegerField(db_column="ReajAno")
+    reajtrim = models.SmallIntegerField(db_column="ReajTrim")
+    reajfact = models.DecimalField(
+        db_column="ReajFact", max_digits=8, decimal_places=5
+    )
+    reajanu = models.CharField(
+        db_column="ReajAnu", max_length=1, blank=True, null=True
+    )
+
+    class Meta:
+        managed = False
+        db_table = "TABREAJUSTE"
+
+    def __str__(self):
+        return f"Reaj {self.reajano} T{self.reajtrim}: {self.reajfact}"
+
+
+class TabTim(models.Model):
+    """
+    Tasa de Interes Moratorio mensual (TABTIM). TIMFact en PORCENTAJE mensual
+    (ej. 0.70000 = 0.70% al mes). La tasa diaria es TIMFact / 30.
+    """
+
+    timcod = models.IntegerField(db_column="TIMCod", primary_key=True)
+    timano = models.SmallIntegerField(db_column="TIMAno")
+    timmes = models.SmallIntegerField(db_column="TIMMes")
+    timfact = models.DecimalField(
+        db_column="TIMFact", max_digits=11, decimal_places=5
+    )
+    timanu = models.CharField(
+        db_column="TIMAnu", max_length=1, blank=True, null=True
+    )
+
+    class Meta:
+        managed = False
+        db_table = "TABTIM"
+
+    def __str__(self):
+        return f"TIM {self.timano}-{self.timmes:02d}: {self.timfact}"

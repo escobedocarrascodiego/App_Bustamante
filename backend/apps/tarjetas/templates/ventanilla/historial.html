@@ -1,0 +1,91 @@
+{% extends "ventanilla/base.html" %}
+{% block title %}Historial de BustaCards{% endblock %}
+
+{% block extra_style %}
+  .stats { display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .stat { background:#fff; border:1px solid var(--border); border-radius:10px; padding:12px 18px; min-width:120px; }
+  .stat .n { font-size:24px; font-weight:800; color:var(--primary); }
+  .stat .l { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+  .stat.ok .n { color:var(--success); }
+  .stat.bad .n { color:var(--danger); }
+  .origen { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+  .origen.app { background:#e3ebfb; color:var(--primary); }
+  .origen.vent { background:#fef3c7; color:#92400e; }
+  .pager { display:flex; gap:8px; align-items:center; justify-content:center; margin-top:16px; }
+{% endblock %}
+
+{% block content %}
+<div class="toolbar" style="display:flex;gap:10px;margin-bottom:16px;">
+  <a class="btn secondary" href="{% url 'ventanilla_buscar' %}">&larr; Buscar contribuyente</a>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="n">{{ total }}</div><div class="l">Total emitidas</div></div>
+  <div class="stat ok"><div class="n">{{ vigentes }}</div><div class="l">Vigentes</div></div>
+  <div class="stat bad"><div class="n">{{ vencidas }}</div><div class="l">Vencidas</div></div>
+</div>
+
+<div class="card-panel">
+  <form method="get" action="" style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+    <input type="text" name="q" value="{{ q }}"
+      placeholder="Filtrar por DNI, nombre o código…"
+      style="flex:1;min-width:240px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;" />
+    <button type="submit" class="btn">Filtrar</button>
+    {% if q %}<a class="btn secondary" href="{% url 'ventanilla_historial' %}">Limpiar</a>{% endif %}
+  </form>
+
+  {% if page.object_list %}
+    <table>
+      <thead>
+        <tr>
+          <th>Estado</th>
+          <th>Código</th>
+          <th>Titular</th>
+          <th>DNI</th>
+          <th>Emisión</th>
+          <th>Vence</th>
+          <th>Origen</th>
+          <th>Emitió</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in page.object_list %}
+        <tr>
+          <td>
+            {% if f.vigente %}<span class="badge ok">Vigente</span>
+            {% else %}<span class="badge bad">Vencida</span>{% endif %}
+          </td>
+          <td>{{ f.codigo }}</td>
+          <td>{{ f.nombre }}</td>
+          <td>{{ f.dni }}</td>
+          <td>{{ f.fecha_emision|date:"d-m-Y" }}</td>
+          <td>{{ f.fecha_vencimiento|date:"d-m-Y" }}</td>
+          <td>
+            {% if f.origen == 'App' %}<span class="origen app">App</span>
+            {% else %}<span class="origen vent">Ventanilla</span>{% endif %}
+          </td>
+          <td class="muted" style="font-size:12px;">{{ f.emitido_por }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    {% if page.paginator.num_pages > 1 %}
+    <div class="pager">
+      {% if page.has_previous %}
+        <a class="btn secondary" href="?q={{ q|urlencode }}&page={{ page.previous_page_number }}">‹ Anterior</a>
+      {% endif %}
+      <span class="muted">Página {{ page.number }} de {{ page.paginator.num_pages }}</span>
+      {% if page.has_next %}
+        <a class="btn secondary" href="?q={{ q|urlencode }}&page={{ page.next_page_number }}">Siguiente ›</a>
+      {% endif %}
+    </div>
+    {% endif %}
+  {% else %}
+    <p class="muted" style="margin:0;">
+      {% if q %}No hay BustaCards que coincidan con «{{ q }}».
+      {% else %}Aún no se han emitido BustaCards.{% endif %}
+    </p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -143,6 +143,19 @@ export type DeudaDetalleItem = {
   cargos_reajuste: number;
   pagado: number;
   saldo_pendiente: number;
+  /**
+   * Desglose del item consolidado "IMPUESTO PREDIAL". `saldo_pendiente` ya es
+   * la suma (base + reajuste + formulario); estos campos son solo para mostrar
+   * el detalle. Presentes solo en items con origen "IMPUESTO PREDIAL".
+   */
+  base_predial?: number;
+  reajuste_predial?: number;
+  formulario_predial?: number;
+  /**
+   * Interes moratorio "real matematico" del año. REFERENCIAL: bajo amnistia se
+   * condona, por eso NO esta incluido en `saldo_pendiente`. Nota informativa.
+   */
+  interes_referencial?: number;
 };
 
 export type CondicionContribuyente = {
@@ -332,6 +345,7 @@ export type Tarjeta = {
   fecha_vencimiento: string;
   activa: boolean;
   bloqueada: boolean;
+  motivo_bloqueo: string;
   vigente: boolean;
 };
 
@@ -376,6 +390,16 @@ export type Contacto = {
 export type GerenciaChatbot = {
   id: number;
   nombre: string;
+};
+
+export type FaqChatbot = {
+  id: number;
+  pregunta: string;
+};
+
+export type ChatbotFaqsResponse = {
+  gerencia_id: number;
+  faqs: FaqChatbot[];
 };
 
 export type RolMensajeChat = 'usuario' | 'bot';

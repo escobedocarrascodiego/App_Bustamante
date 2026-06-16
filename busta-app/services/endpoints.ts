@@ -5,6 +5,7 @@ import type {
   Beneficio,
   CatalogoFormularioTramite,
   ChatbotEnviarMensajeResponse,
+  ChatbotFaqsResponse,
   ChatbotHistorialResponse,
   ChatbotNuevaSesionResponse,
   GerenciaChatbot,
@@ -124,6 +125,11 @@ export const chatbotApi = {
       baseUrl: getChatbotBaseUrl(),
       auth: true,
     }),
+  faqsDeGerencia: (gerenciaId: number) =>
+    api.get<ChatbotFaqsResponse>(`/gerencias/${gerenciaId}/faqs/`, {
+      baseUrl: getChatbotBaseUrl(),
+      auth: true,
+    }),
   nuevaSesion: () =>
     api.post<ChatbotNuevaSesionResponse>(
       '/sesion/nueva/',
@@ -134,12 +140,16 @@ export const chatbotApi = {
     sesion_id: string,
     mensaje: string,
     gerencia_id?: number,
+    faq_id?: number,
   ) =>
     api.post<ChatbotEnviarMensajeResponse>(
       '/mensaje/',
-      gerencia_id !== undefined
-        ? { sesion_id, mensaje, gerencia_id }
-        : { sesion_id, mensaje },
+      {
+        sesion_id,
+        mensaje,
+        ...(gerencia_id !== undefined ? { gerencia_id } : {}),
+        ...(faq_id !== undefined ? { faq_id } : {}),
+      },
       { baseUrl: getChatbotBaseUrl(), auth: true },
     ),
   historial: (sesion_id: string) =>

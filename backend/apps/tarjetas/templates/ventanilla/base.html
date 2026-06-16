@@ -1,0 +1,78 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Ventanilla BustaCard{% endblock %}</title>
+  <style>
+    :root {
+      --primary: #0B3D91;
+      --primary-dark: #072A66;
+      --accent: #F5B800;
+      --surface: #F5F7FB;
+      --border: #E2E8F0;
+      --text: #1F2937;
+      --muted: #6B7280;
+      --success: #15803D;
+      --danger: #B91C1C;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+      background: var(--surface);
+      color: var(--text);
+    }
+    .topbar {
+      background: var(--primary);
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .topbar h1 { font-size: 16px; margin: 0; font-weight: 800; letter-spacing: .3px; }
+    .topbar small { display: block; font-weight: 400; opacity: .85; font-size: 12px; }
+    .wrap { max-width: 920px; margin: 24px auto; padding: 0 16px; }
+    .card-panel {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    }
+    a { color: var(--primary); }
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--primary); color: #fff; border: none;
+      padding: 10px 16px; border-radius: 8px; font-size: 14px;
+      font-weight: 700; cursor: pointer; text-decoration: none;
+    }
+    .btn:hover { background: var(--primary-dark); }
+    .btn.secondary { background: #fff; color: var(--primary); border: 1px solid var(--primary); }
+    .btn.accent { background: var(--accent); color: #3a2c00; }
+    .muted { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 14px; }
+    th { background: #f1f5fb; color: var(--primary); font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
+    tr:hover td { background: #fafcff; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .badge.ok { background: #dcfce7; color: var(--success); }
+    .badge.bad { background: #fee2e2; color: var(--danger); }
+    {% block extra_style %}{% endblock %}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    {% if logo %}<img src="{{ logo }}" alt="logo" style="height:40px;width:40px;object-fit:contain;background:#fff;border-radius:50%;padding:2px;" />{% endif %}
+    <div>
+      <h1>Municipalidad Distrital de José Luis Bustamante y Rivero</h1>
+      <small>Generación de BustaCard — Ventanilla / Uso interno</small>
+    </div>
+  </div>
+  <div class="wrap">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

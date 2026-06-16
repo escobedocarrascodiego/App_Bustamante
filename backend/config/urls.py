@@ -25,6 +25,8 @@ urlpatterns = [
     path("api/v1/", include((api_v1, "v1"))),
     # Chatbot va fuera del prefijo v1 a pedido del feature: /api/chatbot/...
     path("api/chatbot/", include("apps.chatbot.urls")),
+    # Modulo de ventanilla (uso interno staff): generar/imprimir BustaCard.
+    path("genera_bustacard/", include("apps.tarjetas.ventanilla_urls")),
 ]
 
 if settings.DEBUG:
