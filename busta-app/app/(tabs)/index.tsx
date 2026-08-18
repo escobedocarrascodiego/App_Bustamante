@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -113,6 +113,18 @@ export default function InicioScreen() {
           ))}
         </View>
 
+        {/* Acceso al gestor de turnos (una sola tarjeta, sin saturar la grilla) */}
+        <Pressable onPress={() => router.push('/turnos' as Href)} style={styles.turnosCard}>
+          <View style={styles.turnosIcon}>
+            <MaterialCommunityIcons name="ticket-confirmation" size={26} color={MunicipalityColors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.turnosTitle}>Atencion en ventanilla</Text>
+            <Text style={styles.turnosSub}>Mira la cola en vivo y saca tu turno</Text>
+          </View>
+          <MaterialCommunityIcons name="arrow-right" size={22} color={MunicipalityColors.primary} />
+        </Pressable>
+
         <Text style={styles.sectionTitle}>Noticias municipales</Text>
         {/*
           El View captura gestos para que el ScrollView padre no se "robe"
@@ -192,6 +204,23 @@ const styles = StyleSheet.create({
     borderRadius: Radius.md,
   },
   accesoLabel: { fontWeight: '700', color: MunicipalityColors.textPrimary },
+  turnosCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    backgroundColor: MunicipalityColors.white,
+    borderRadius: Radius.lg,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: MunicipalityColors.border,
+  },
+  turnosIcon: {
+    backgroundColor: MunicipalityColors.primary,
+    padding: 10,
+    borderRadius: Radius.md,
+  },
+  turnosTitle: { fontWeight: '800', color: MunicipalityColors.textPrimary, fontSize: 15 },
+  turnosSub: { color: MunicipalityColors.textSecondary, fontSize: 12, marginTop: 2 },
   verMas: {
     flexDirection: 'row',
     alignItems: 'center',

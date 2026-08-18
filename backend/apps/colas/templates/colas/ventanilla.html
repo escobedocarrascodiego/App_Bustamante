@@ -1,0 +1,188 @@
+{% extends "colas/base.html" %}
+{% block title %}Módulo Ventanillero{% endblock %}
+{% block style %}
+  .wrap { max-width: 760px; margin: 0 auto; padding: 18px; }
+  .top { display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px; }
+  .top h1 { color: var(--primary); margin: 0; font-size: 20px; }
+  .estado-pill { font-weight:800; padding:4px 12px; border-radius:999px; font-size:13px; }
+  .e-LIBRE { background:#dcfce7; color:var(--success); }
+  .e-LLAMANDO { background:#fef3c7; color:#92400e; }
+  .e-OCUPADA { background:#fee2e2; color:var(--danger); }
+  .e-PAUSA { background:#e5e7eb; color:var(--muted); }
+  .e-CERRADA { background:#e5e7eb; color:var(--muted); }
+  .card { background:#fff; border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow:0 1px 3px rgba(0,0,0,.05); }
+  .turno-actual { text-align:center; padding: 10px 0; }
+  .turno-actual .codigo { font-size: 56px; font-weight:900; color:var(--primary); line-height:1; }
+  .turno-actual .serv { font-weight:700; color:var(--text); }
+  .turno-actual .contrib { color:var(--muted); margin-top:6px; }
+  .pref-badge { display:inline-block; background:#FEF3C7; color:#92400E; font-weight:800; padding:3px 10px; border-radius:999px; font-size:12px; margin-top:6px;}
+  .acciones { display:flex; gap:10px; flex-wrap:wrap; margin-top:18px; }
+  .acciones .btn { flex:1; min-width: 140px; font-size:17px; padding:16px; }
+  .cola { margin-top:18px; }
+  .cola .n { font-size: 40px; font-weight:900; color:var(--primary); }
+  .proximos { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .chip { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:6px 12px; font-weight:700; }
+  .chip.pref { background:#FEF3C7; border-color:#FCD34D; color:#92400E; }
+  .abrir { display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:12px; }
+  .abrir .num { font-size:24px; font-weight:900; padding:22px; border-radius:14px; background:var(--primary); color:#fff; border:none; cursor:pointer; }
+  .muted { color: var(--muted); }
+  .derivar-box { margin-top:12px; display:none; gap:8px; }
+  select { padding:12px; border-radius:10px; border:1px solid var(--border); font-size:15px; }
+{% endblock %}
+{% block body %}
+<div class="wrap">
+  <div class="top">
+    <h1>Módulo de Atención</h1>
+    <span id="estadoPill" class="estado-pill e-CERRADA">—</span>
+  </div>
+
+  <!-- Selector de ventanilla (cuando no tiene una abierta) -->
+  <div class="card" id="vistaAbrir" style="display:none;">
+    <div style="font-weight:800; color:var(--primary);">Abre tu ventanilla para empezar</div>
+    <p class="muted" style="margin-top:4px;">Selecciona el número de ventanilla que vas a operar.</p>
+    <div class="abrir" id="abrirGrid"></div>
+  </div>
+
+  <!-- Operación -->
+  <div class="card" id="vistaOperar" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="font-weight:800; color:var(--primary);">Ventanilla <span id="vNum">–</span></div>
+      <button class="btn secondary" id="btnCerrar" style="padding:8px 12px; font-size:13px;">Cerrar ventanilla</button>
+    </div>
+
+    <div class="turno-actual" id="turnoActual" style="display:none;">
+      <div class="codigo" id="taCodigo">––</div>
+      <div class="serv" id="taServ"></div>
+      <div class="contrib" id="taContrib"></div>
+      <div id="taPref" class="pref-badge" style="display:none;">PREFERENTE</div>
+    </div>
+
+    <div id="sinTurno" class="turno-actual muted" style="display:none;">Sin turno en curso</div>
+
+    <div class="acciones" id="acciones"></div>
+
+    <div class="derivar-box" id="derivarBox">
+      <select id="derivarSel">
+        {% for s in servicios %}<option value="{{ s.id }}">{{ s.nombre }}</option>{% endfor %}
+      </select>
+      <button class="btn warning" id="derivarConfirm">Derivar</button>
+      <button class="btn secondary" id="derivarCancel">Cancelar</button>
+    </div>
+
+    <div class="cola">
+      <div class="muted">En espera</div>
+      <div class="n" id="enEspera">0</div>
+      <div class="proximos" id="proximos"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+  function getCookie(name) {
+    const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+  const CSRF = getCookie('csrftoken');
+
+  async function api(url, body) {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) { alert(data.detail || 'Error en la acción.'); }
+    return { ok: resp.ok, data };
+  }
+
+  async function accion(a, extra) { await api("{% url 'colas_accion' %}", { accion: a, ...(extra||{}) }); refrescar(); }
+  async function abrir(n) { await api("{% url 'colas_abrir' %}", { numero: n }); refrescar(); }
+
+  const BOTONES = {
+    LIBRE: [['llamar', 'Llamar siguiente', 'success'], ['pausar', 'Pausa', 'secondary']],
+    LLAMANDO: [['iniciar', 'Iniciar atención', 'success'], ['rellamar', 'Rellamar', 'secondary'], ['ausente', 'Ausente', 'danger']],
+    OCUPADA: [['finalizar', 'Finalizar', 'success'], ['__derivar', 'Derivar', 'warning']],
+    PAUSA: [['reanudar', 'Reanudar', 'success']],
+  };
+
+  function pintarAcciones(estado, enEspera) {
+    const cont = document.getElementById('acciones');
+    cont.innerHTML = '';
+    (BOTONES[estado] || []).forEach(([a, label, cls]) => {
+      const b = document.createElement('button');
+      b.className = 'btn ' + cls;
+      b.textContent = label;
+      if (a === 'llamar' && enEspera === 0) b.disabled = true;
+      b.addEventListener('click', () => {
+        if (a === '__derivar') { document.getElementById('derivarBox').style.display = 'flex'; return; }
+        accion(a);
+      });
+      cont.appendChild(b);
+    });
+  }
+
+  async function refrescar() {
+    let data;
+    try {
+      const resp = await fetch("{% url 'colas_mi_ventanilla' %}");
+      data = await resp.json();
+    } catch (e) { return; }
+
+    const pill = document.getElementById('estadoPill');
+    if (!data.tiene_ventanilla) {
+      document.getElementById('vistaAbrir').style.display = 'block';
+      document.getElementById('vistaOperar').style.display = 'none';
+      pill.className = 'estado-pill e-CERRADA'; pill.textContent = 'Sin ventanilla';
+      const grid = document.getElementById('abrirGrid');
+      grid.innerHTML = '';
+      (data.ventanillas || []).forEach(v => {
+        const b = document.createElement('button');
+        b.className = 'num'; b.textContent = v.numero;
+        b.addEventListener('click', () => abrir(v.numero));
+        grid.appendChild(b);
+      });
+      return;
+    }
+
+    document.getElementById('vistaAbrir').style.display = 'none';
+    document.getElementById('vistaOperar').style.display = 'block';
+    document.getElementById('vNum').textContent = data.numero;
+    pill.className = 'estado-pill e-' + data.estado;
+    pill.textContent = data.estado_label;
+
+    const t = data.turno_actual;
+    document.getElementById('turnoActual').style.display = t ? 'block' : 'none';
+    document.getElementById('sinTurno').style.display = t ? 'none' : 'block';
+    if (t) {
+      document.getElementById('taCodigo').textContent = t.codigo;
+      document.getElementById('taServ').textContent = t.servicio;
+      const c = [t.nombre, t.dni].filter(Boolean).join(' · ');
+      document.getElementById('taContrib').textContent = c || 'Sin datos del contribuyente';
+      document.getElementById('taPref').style.display = t.prioritario ? 'inline-block' : 'none';
+    }
+
+    document.getElementById('enEspera').textContent = data.en_espera;
+    const prox = document.getElementById('proximos');
+    prox.innerHTML = '';
+    (data.proximos || []).forEach(p => {
+      const c = document.createElement('span');
+      c.className = 'chip' + (p.prioritario ? ' pref' : '');
+      c.textContent = p.codigo;
+      prox.appendChild(c);
+    });
+
+    if (data.estado !== 'OCUPADA') document.getElementById('derivarBox').style.display = 'none';
+    pintarAcciones(data.estado, data.en_espera);
+  }
+
+  document.getElementById('btnCerrar').addEventListener('click', () => { if (confirm('¿Cerrar la ventanilla?')) accion('cerrar'); });
+  document.getElementById('derivarConfirm').addEventListener('click', () =>
+    accion('derivar', { servicio_destino_id: parseInt(document.getElementById('derivarSel').value) }));
+  document.getElementById('derivarCancel').addEventListener('click', () =>
+    document.getElementById('derivarBox').style.display = 'none');
+
+  refrescar();
+  setInterval(refrescar, 2500); // polling
+</script>
+{% endblock %}

@@ -11,8 +11,12 @@ import type {
   GerenciaChatbot,
   CheckDniResponse,
   Ciudadano,
+  ColaServicio,
   Contacto,
   DatosPersonalesOmitido,
+  EstadoColasResponse,
+  MiTurno,
+  MiTurnoResponse,
   Deuda,
   DeudaDetalleResponse,
   DeudaMuniResult,
@@ -105,6 +109,20 @@ export const tarjetasApi = {
   emitir: () => api.post<Tarjeta>('/tarjetas/mi-tarjeta/'),
   beneficios: async () =>
     unwrapList(await api.get<AnyList<Beneficio>>('/tarjetas/beneficios/')),
+};
+
+export const colasApi = {
+  estado: async (): Promise<ColaServicio[]> =>
+    (await api.get<EstadoColasResponse>('/colas/estado/')).colas,
+  miTurno: async (): Promise<MiTurno | null> =>
+    (await api.get<MiTurnoResponse>('/colas/mi-turno/')).turno,
+  pedirTurno: (servicioId: number, prioritario: boolean) =>
+    api.post<MiTurnoResponse>('/colas/pedir-turno/', {
+      servicio_id: servicioId,
+      prioritario,
+    }),
+  yaLlegue: () => api.post<MiTurnoResponse>('/colas/ya-llegue/'),
+  cancelar: () => api.post<{ ok: boolean }>('/colas/cancelar/'),
 };
 
 export const catalogosApi = {

@@ -1,0 +1,361 @@
+{% extends "colas/base.html" %}
+{% block title %}Sacar turno{% endblock %}
+{% block style %}
+  body { background: var(--primary); }
+  .kiosko { min-height: 100vh; display:flex; flex-direction:column; padding: 22px 28px 28px; }
+  .head { text-align:center; color:#fff; margin-bottom: 16px; }
+  .head .muni { font-size:14px; letter-spacing:1px; opacity:.9; }
+  .head h1 { margin: 4px 0 0; font-size: 32px; }
+  .head p { margin: 6px 0 0; opacity:.85; font-size:18px; }
+
+  /* Tarjetas base */
+  .card { background:#fff; border-radius: 20px; padding: 26px; }
+  .label { font-weight: 800; color: var(--primary); margin: 4px 0 10px; font-size: 19px; }
+  .muted { color: var(--muted); font-size: 14px; }
+
+  /* PASO 1: DNI (columna angosta centrada) */
+  .card-panel { max-width: 520px; margin: 0 auto; width:100%; }
+  .dni-input {
+    width: 100%; font-size: 30px; text-align:center; letter-spacing: 8px;
+    padding: 14px; border: 2px solid var(--border); border-radius: 12px;
+    font-weight: 800; color: var(--text); background:#fff;
+  }
+  .keypad { display:grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+  .key { font-size: 28px; font-weight: 800; padding: 20px; border-radius: 14px; border:1px solid var(--border); background:#fff; cursor:pointer; }
+  .key:active { background: var(--surface); }
+  .acciones2 { display:flex; gap:12px; margin-top:16px; }
+  .scanhint { text-align:center; margin-top:14px; color:var(--muted); font-size:14px; }
+  .scanhint b { color: var(--primary); }
+
+  /* PASO 2: dos columnas horizontal */
+  .grid2 { display:grid; grid-template-columns: 1fr 1.15fr; gap: 24px; align-items:start; max-width: 1200px; margin: 0 auto; width:100%; }
+
+  .hola { background:#EEF2FF; border-radius:14px; padding:20px; text-align:center; }
+  .hola .k { font-size:16px; color:var(--muted); }
+  .hola .n { font-size:28px; font-weight:900; color:var(--primary); line-height:1.1; margin-top:4px; }
+  .nombre-input {
+    width: 100%; font-size: 26px; text-align:center; text-transform: uppercase;
+    letter-spacing: 1px; padding: 14px; border: 2px solid var(--border);
+    border-radius: 12px; font-weight: 800; color: var(--text); background:#fff;
+  }
+
+  /* Teclado en pantalla (QWERTY) */
+  .teclado { margin-top: 12px; display:flex; flex-direction:column; gap:8px; }
+  .krow { display:flex; gap:7px; justify-content:center; }
+  .tk { flex:1; font-size:22px; font-weight:800; padding:16px 0; border-radius:11px;
+        border:1px solid var(--border); background:#fff; cursor:pointer; min-width:0; }
+  .tk:active { background: var(--surface); }
+  .tk.wide { flex: 4; }
+  .tk.del { flex: 2; color: var(--danger); }
+
+  .pref { display:flex; align-items:center; gap:12px; margin-top:18px; background:var(--surface); border-radius:12px; padding:14px; cursor:pointer; }
+  .pref input { width: 28px; height: 28px; flex:none; }
+  .pref .txt { font-size: 16px; font-weight:600; }
+
+  .servicios { display:grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-top: 6px; }
+  .serv-btn { font-size: 21px; min-height: 96px; padding: 20px 16px; border-radius: 16px; background: var(--primary); color:#fff; border:none; font-weight:800; cursor:pointer; }
+  .serv-btn:disabled { opacity:.35; cursor:not-allowed; }
+  .serv-btn:active { background: var(--primary-dark); }
+
+  /* Confirmacion */
+  .ov { position:fixed; inset:0; background:rgba(11,61,145,.97); display:none; align-items:center; justify-content:center; padding:20px; z-index:50; }
+  .conf { background:#fff; border-radius:20px; padding:34px; text-align:center; max-width: 420px; width:100%; }
+  .conf .ok { font-size:52px; }
+  .conf .codigo { font-size: 72px; font-weight: 900; color: var(--primary); line-height:1; margin: 8px 0; }
+  .conf .msg { color: var(--text); font-size:17px; margin-top:12px; }
+  .conf .sub { color: var(--muted); font-size:14px; margin-top:6px; }
+
+  /* ---- Ticket termico 80mm (solo impresion) ---- */
+  #ticket { display:none; }
+  @media print {
+    @page { size: 80mm auto; margin: 0; }
+    html, body { background:#fff !important; margin:0; padding:0; }
+    .kiosko, .ov { display:none !important; }
+    #ticket {
+      display:block !important; width: 80mm; padding: 5mm 4mm 8mm;
+      color:#000; text-align:center; font-family:'Segoe UI', Arial, sans-serif;
+    }
+    #ticket .t-muni { font-size: 11pt; font-weight:800; line-height:1.15; }
+    #ticket .t-tit  { font-size: 10pt; margin-top: 3mm; letter-spacing:1px; }
+    #ticket .t-cod  { font-size: 50pt; font-weight:900; line-height:1; margin: 2mm 0; }
+    #ticket .t-pref { font-size: 12pt; font-weight:800; margin-bottom:1mm; }
+    #ticket .t-serv { font-size: 13pt; font-weight:700; margin-top:2mm; }
+    #ticket .t-nom  { font-size: 12pt; margin-top:1mm; }
+    #ticket .t-bc   { margin: 3mm 0 1mm; }
+    #ticket .t-bc svg { max-width: 64mm; height: auto; }
+    #ticket .t-meta { font-size: 9pt; }
+    #ticket .t-msg  { font-size: 9pt; margin-top: 3mm; line-height:1.3; }
+    #ticket .hr { border-top: 1px dashed #000; margin: 3mm 0; }
+  }
+{% endblock %}
+{% block body %}
+<div class="kiosko">
+  <div class="head">
+    <div class="muni">MUNICIPALIDAD DISTRITAL JOSÉ LUIS BUSTAMANTE Y RIVERO</div>
+    <h1>Saca tu turno</h1>
+    <p id="subhead">Ingresa o escanea tu DNI (opcional)</p>
+  </div>
+
+  <!-- PASO 1: DNI -->
+  <div id="pasoDni" class="card card-panel">
+    <div class="label">DNI <span class="muted" style="font-weight:500;">(opcional)</span></div>
+    <input id="dni" class="dni-input" inputmode="numeric" maxlength="8" placeholder="––––––––" readonly />
+    <div class="keypad">
+      {% for n in "123456789" %}<button class="key" data-k="{{ n }}">{{ n }}</button>{% endfor %}
+      <button class="key" data-k="borrar">⌫</button>
+      <button class="key" data-k="0">0</button>
+      <button class="key" data-k="limpiar">C</button>
+    </div>
+    <div class="acciones2">
+      <button class="btn" style="flex:2;" id="btnContinuar">Continuar</button>
+      <button class="btn secondary" style="flex:1;" id="btnSinDni">No tengo DNI</button>
+    </div>
+    <div class="scanhint">📷 También puedes <b>escanear tu DNI o BustaCard</b> en el lector.</div>
+  </div>
+
+  <!-- PASO 2: datos + servicios (horizontal) -->
+  <div id="pasoDatos" class="grid2" style="display:none;">
+    <!-- Columna izquierda: identificacion -->
+    <div class="card">
+      <div id="holaBox" class="hola" style="display:none;">
+        <div class="k">Hola,</div>
+        <div class="n" id="holaNombre"></div>
+      </div>
+
+      <div id="nombreBox" style="display:none;">
+        <div class="label">Escribe tu nombre</div>
+        <input id="nombre" class="nombre-input" maxlength="40" placeholder="EJ: JUAN" readonly />
+        <div class="muted" style="margin-top:6px;">Te llamaremos por tu nombre en la pantalla.</div>
+        <div id="teclado" class="teclado"></div>
+      </div>
+
+      <label class="pref" id="prefRow">
+        <input type="checkbox" id="pref" />
+        <span class="txt">Atención preferente<br><span class="muted" style="font-weight:500;">gestante, adulto mayor, discapacidad</span></span>
+      </label>
+    </div>
+
+    <!-- Columna derecha: servicios -->
+    <div class="card">
+      <div class="label">¿Qué trámite necesitas?</div>
+      <div class="servicios">
+        {% for s in servicios %}
+          <button class="serv-btn" data-id="{{ s.id }}">{{ s.nombre }}</button>
+        {% empty %}
+          <p class="muted">No hay servicios configurados. Crea uno en el admin.</p>
+        {% endfor %}
+      </div>
+      <div class="acciones2">
+        <button class="btn secondary" style="flex:1;" id="btnAtras">← Atrás</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Overlay de confirmacion -->
+<div class="ov" id="ov">
+  <div class="conf">
+    <div class="ok">✅</div>
+    <div class="muted">Tu turno</div>
+    <div class="codigo" id="cCod">––</div>
+    <div class="msg" id="cMsg">Turno generado. <strong>Revisa la pantalla</strong>.</div>
+    <div class="sub">Se imprimió tu ticket. Te llamaremos por tu nombre.</div>
+    <button class="btn" style="margin-top:22px; width:100%;" id="btnListo">Listo</button>
+  </div>
+</div>
+
+<!-- Ticket para impresion termica (invisible en pantalla) -->
+<div id="ticket">
+  <div class="t-muni">MUNICIPALIDAD DISTRITAL<br>JOSÉ LUIS BUSTAMANTE Y RIVERO</div>
+  <div class="t-tit">TURNO DE ATENCIÓN</div>
+  <div class="t-pref" id="tPref" style="display:none;">● ATENCIÓN PREFERENTE</div>
+  <div class="t-cod" id="tCod">––</div>
+  <div class="t-serv" id="tServ"></div>
+  <div class="t-nom" id="tNom"></div>
+  <div class="t-bc" id="tBc"></div>
+  <div class="hr"></div>
+  <div class="t-meta" id="tMeta"></div>
+  <div class="t-msg">Espere a ser llamado en la pantalla.<br>Gracias por su visita.</div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+  const $ = (id) => document.getElementById(id);
+  const BUSCAR_URL = "{% url 'colas_buscar_dni' %}";
+  const EMITIR_URL = "{% url 'colas_emitir' %}";
+  let nombreAuto = null;   // nombre traido del padron (si DNI encontrado)
+  let resetTimer = null;
+
+  // ---- Keypad numerico (DNI) ----
+  document.querySelectorAll('.key').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.k;
+    const el = $('dni');
+    if (k === 'borrar') el.value = el.value.slice(0, -1);
+    else if (k === 'limpiar') el.value = '';
+    else if (el.value.length < 8) el.value += k;
+  }));
+
+  // ---- Teclado QWERTY en pantalla (nombre) ----
+  (function construirTeclado() {
+    const filas = ['QWERTYUIOP', 'ASDFGHJKLÑ', 'ZXCVBNM'];
+    const cont = $('teclado');
+    filas.forEach(f => {
+      const row = document.createElement('div');
+      row.className = 'krow';
+      for (const ch of f) {
+        const b = document.createElement('button');
+        b.className = 'tk'; b.textContent = ch; b.dataset.ch = ch;
+        row.appendChild(b);
+      }
+      cont.appendChild(row);
+    });
+    const row = document.createElement('div');
+    row.className = 'krow';
+    const esp = document.createElement('button');
+    esp.className = 'tk wide'; esp.textContent = 'ESPACIO'; esp.dataset.act = 'space';
+    const del = document.createElement('button');
+    del.className = 'tk del'; del.textContent = '⌫ Borrar'; del.dataset.act = 'del';
+    row.appendChild(esp); row.appendChild(del);
+    cont.appendChild(row);
+  })();
+
+  $('teclado').addEventListener('click', (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    const el = $('nombre');
+    if (b.dataset.act === 'space') { if (el.value.length < 40 && el.value.length) el.value += ' '; }
+    else if (b.dataset.act === 'del') el.value = el.value.slice(0, -1);
+    else if (b.dataset.ch && el.value.length < 40) el.value += b.dataset.ch;
+    actualizarServicios();
+  });
+
+  // ---- Navegacion de pasos ----
+  function mostrarDatos(modoAuto, nombre) {
+    $('pasoDni').style.display = 'none';
+    $('pasoDatos').style.display = 'grid';
+    $('subhead').textContent = 'Elige tu trámite';
+    if (modoAuto) {
+      nombreAuto = nombre;
+      $('holaBox').style.display = 'block';
+      $('holaNombre').textContent = nombre;
+      $('nombreBox').style.display = 'none';
+    } else {
+      nombreAuto = null;
+      $('holaBox').style.display = 'none';
+      $('nombreBox').style.display = 'block';
+      $('nombre').value = '';
+    }
+    actualizarServicios();
+  }
+
+  function actualizarServicios() {
+    const requiereNombre = !nombreAuto;
+    const nombreOk = !requiereNombre || $('nombre').value.trim().length >= 2;
+    document.querySelectorAll('.serv-btn').forEach(b => b.disabled = !nombreOk);
+  }
+
+  async function procesarDni() {
+    const dni = $('dni').value.trim();
+    if (!dni) { mostrarDatos(false, ''); return; }
+    try {
+      const r = await fetch(BUSCAR_URL + '?dni=' + encodeURIComponent(dni));
+      const data = await r.json();
+      if (data.encontrado && data.nombre) mostrarDatos(true, data.nombre);
+      else mostrarDatos(false, '');
+    } catch (e) { mostrarDatos(false, ''); }
+  }
+
+  $('btnContinuar').addEventListener('click', procesarDni);
+  $('btnSinDni').addEventListener('click', () => { $('dni').value = ''; mostrarDatos(false, ''); });
+  $('btnAtras').addEventListener('click', () => {
+    $('pasoDatos').style.display = 'none';
+    $('pasoDni').style.display = 'block';
+    $('subhead').textContent = 'Ingresa o escanea tu DNI (opcional)';
+  });
+
+  // ---- Lector de codigo de barras / QR (actua como teclado-wedge) ----
+  // Detecta rafagas rapidas de digitos terminadas en Enter. Solo en el paso DNI.
+  let scanBuf = '';
+  let scanLast = 0;
+  document.addEventListener('keydown', (e) => {
+    if ($('pasoDni').style.display === 'none') return; // solo en paso 1
+    const now = Date.now();
+    if (now - scanLast > 80) scanBuf = '';  // si no es rafaga, reinicia
+    scanLast = now;
+    if (e.key === 'Enter') {
+      const digitos = (scanBuf.match(/\d/g) || []).join('');
+      if (digitos.length >= 6) {
+        $('dni').value = digitos.slice(-8); // ultimos 8 digitos = DNI
+        procesarDni();
+      }
+      scanBuf = '';
+      return;
+    }
+    if (e.key && e.key.length === 1) scanBuf += e.key;
+  });
+
+  // ---- Emitir turno ----
+  async function emitir(servicioId) {
+    const nombre = nombreAuto || $('nombre').value.trim().toUpperCase();
+    document.querySelectorAll('.serv-btn').forEach(b => b.disabled = true); // anti doble-toque
+    try {
+      const resp = await fetch(EMITIR_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          servicio_id: servicioId,
+          dni: $('dni').value.trim(),
+          nombre: nombre,
+          prioritario: $('pref').checked,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { alert(data.detail || 'No se pudo generar el turno.'); actualizarServicios(); return; }
+      mostrarConfirmacion(data);
+      imprimirTicket(data);
+    } catch (e) {
+      alert('Error de conexión. Intenta de nuevo.');
+      actualizarServicios();
+    }
+  }
+  document.querySelectorAll('.serv-btn').forEach(b =>
+    b.addEventListener('click', () => { if (!b.disabled) emitir(parseInt(b.dataset.id)); }));
+
+  function mostrarConfirmacion(data) {
+    $('cCod').textContent = data.codigo;
+    const n = data.personas_adelante;
+    $('cMsg').innerHTML = (n > 0)
+      ? 'Hay <strong>' + n + '</strong> persona(s) antes que tú. <strong>Revisa la pantalla</strong>.'
+      : 'Eres el <strong>siguiente</strong>. <strong>Revisa la pantalla</strong>.';
+    $('ov').style.display = 'flex';
+    // Auto-reset por si el vecino se aleja sin tocar "Listo"
+    if (resetTimer) clearTimeout(resetTimer);
+    resetTimer = setTimeout(reset, 15000);
+  }
+
+  // ---- Impresion automatica del ticket (silenciosa con --kiosk-printing) ----
+  function imprimirTicket(data) {
+    $('tCod').textContent = data.codigo;
+    $('tServ').textContent = data.servicio || '';
+    $('tNom').textContent = data.nombre ? ('Sr(a): ' + data.nombre) : '';
+    $('tPref').style.display = data.prioritario ? 'block' : 'none';
+    $('tBc').innerHTML = data.barcode_svg || '';
+    const adel = (data.personas_adelante > 0)
+      ? (data.personas_adelante + ' persona(s) antes que usted')
+      : 'Usted es el siguiente';
+    $('tMeta').innerHTML = (data.fecha || '') + ' &nbsp; ' + (data.hora || '') + '<br>' + adel;
+    // pequeño respiro para que el DOM del ticket pinte antes de imprimir
+    setTimeout(() => { try { window.print(); } catch (e) {} }, 150);
+  }
+
+  // ---- Reset a pantalla inicial ----
+  function reset() {
+    if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
+    $('ov').style.display = 'none';
+    $('dni').value = ''; $('pref').checked = false; nombreAuto = null; scanBuf = '';
+    $('pasoDatos').style.display = 'none';
+    $('pasoDni').style.display = 'block';
+    $('subhead').textContent = 'Ingresa o escanea tu DNI (opcional)';
+  }
+  $('btnListo').addEventListener('click', reset);
+</script>
+{% endblock %}

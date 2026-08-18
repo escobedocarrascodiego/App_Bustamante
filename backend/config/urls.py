@@ -17,6 +17,7 @@ api_v1 = [
     path("tramites/", include("apps.tramites.urls")),
     path("tarjetas/", include("apps.tarjetas.urls")),
     path("catalogos/", include("apps.catalogos.urls")),
+    path("colas/", include("apps.colas.api_urls")),
 ]
 
 urlpatterns = [
@@ -27,6 +28,8 @@ urlpatterns = [
     path("api/chatbot/", include("apps.chatbot.urls")),
     # Modulo de ventanilla (uso interno staff): generar/imprimir BustaCard.
     path("genera_bustacard/", include("apps.tarjetas.ventanilla_urls")),
+    # Gestor de colas / turnos (kiosko, ventanillero, TV).
+    path("colas/", include("apps.colas.urls")),
 ]
 
 if settings.DEBUG:

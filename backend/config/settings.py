@@ -13,7 +13,8 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default="dev-insecure-key-change-me")
 DEBUG = config("DJANGO_DEBUG", default=True, cast=bool)
 ALLOWED_HOSTS = config(
     "DJANGO_ALLOWED_HOSTS",
-    default="localhost,127.0.0.1,10.0.2.2",
+    # 10.0.0.4 = servidor en la LAN municipal (kiosko/TV entran por esa IP).
+    default="localhost,127.0.0.1,10.0.2.2,10.0.0.4",
     cast=Csv(),
 )
 
@@ -36,6 +37,7 @@ INSTALLED_APPS = [
     "apps.tarjetas",
     "apps.catalogos",
     "apps.chatbot",
+    "apps.colas",
     # apps externas de solo lectura (producción)
     "apps.externos_tramites",
     "apps.externos_muni",

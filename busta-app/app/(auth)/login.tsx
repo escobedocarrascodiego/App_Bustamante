@@ -291,23 +291,23 @@ export default function LoginScreen() {
                   <MuniInput
                     label="Nombres"
                     value={datosNombres}
-                    onChangeText={setDatosNombres}
-                    placeholder="Ej: Juan Carlos"
-                    autoCapitalize="words"
+                    onChangeText={(t) => setDatosNombres(t.toUpperCase())}
+                    placeholder="Ej: JUAN CARLOS"
+                    autoCapitalize="characters"
                   />
                   <MuniInput
                     label="Apellido paterno"
                     value={datosApPaterno}
-                    onChangeText={setDatosApPaterno}
-                    placeholder="Ej: Quispe"
-                    autoCapitalize="words"
+                    onChangeText={(t) => setDatosApPaterno(t.toUpperCase())}
+                    placeholder="Ej: QUISPE"
+                    autoCapitalize="characters"
                   />
                   <MuniInput
                     label="Apellido materno"
                     value={datosApMaterno}
-                    onChangeText={setDatosApMaterno}
-                    placeholder="Ej: Mamani"
-                    autoCapitalize="words"
+                    onChangeText={(t) => setDatosApMaterno(t.toUpperCase())}
+                    placeholder="Ej: MAMANI"
+                    autoCapitalize="characters"
                     hint="Opcional"
                   />
                   <MuniInput

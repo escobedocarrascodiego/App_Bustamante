@@ -1,0 +1,40 @@
+{% extends "colas/base.html" %}
+{% block title %}Gestor de Turnos — Municipalidad JLBR{% endblock %}
+{% block style %}
+  .hub { max-width: 720px; margin: 48px auto; padding: 0 16px; }
+  .hub h1 { color: var(--primary); }
+  .cards { display: grid; gap: 16px; margin-top: 24px; }
+  .card-link {
+    display: block; background:#fff; border:1px solid var(--border);
+    border-radius: 14px; padding: 22px; text-decoration: none; color: var(--text);
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+  }
+  .card-link:hover { border-color: var(--primary); }
+  .card-link .t { font-size: 20px; font-weight: 800; color: var(--primary); }
+  .card-link .d { color: var(--muted); margin-top: 4px; font-size: 14px; }
+  .tag { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:#EEF2FF; color:var(--primary); }
+{% endblock %}
+{% block body %}
+<div class="hub">
+  <h1>Gestor de Turnos</h1>
+  <p style="color:var(--muted);">Municipalidad Distrital de José Luis Bustamante y Rivero · Rentas</p>
+  <div class="cards">
+    <a class="card-link" href="{% url 'colas_kiosko' %}">
+      <div class="t">🎫 Kiosko — Sacar turno</div>
+      <div class="d">Pantalla táctil de autoservicio. Con o sin DNI. <span class="tag">público</span></div>
+    </a>
+    <a class="card-link" href="{% url 'colas_ventanilla' %}">
+      <div class="t">🧑‍💼 Ventanillero — Módulo de atención</div>
+      <div class="d">Abrir ventanilla, llamar, atender, finalizar. <span class="tag">requiere login staff</span></div>
+    </a>
+    <a class="card-link" href="{% url 'colas_tv' %}">
+      <div class="t">📺 TV — Pantalla de turnos</div>
+      <div class="d">Para la pantalla LED de la sala. <span class="tag">público</span></div>
+    </a>
+  </div>
+  <p style="color:var(--muted); margin-top:24px; font-size:13px;">
+    La configuración de servicios y ventanillas se hace en el
+    <a href="/admin/colas/">Django admin</a>.
+  </p>
+</div>
+{% endblock %}

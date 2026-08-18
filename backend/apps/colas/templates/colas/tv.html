@@ -1,0 +1,185 @@
+{% extends "colas/base.html" %}
+{% block title %}Turnos — Pantalla{% endblock %}
+{% block style %}
+  body { background:#0a1733; color:#fff; height:100vh; overflow:hidden; }
+  .tv { display:flex; flex-direction:column; height:100vh; }
+  .tvhead { background: var(--primary); padding: 12px 28px; display:flex; align-items:center; justify-content:space-between; }
+  .tvhead .muni { font-size: 20px; font-weight: 800; letter-spacing:.5px; }
+  .tvhead .reloj { font-size: 22px; font-weight: 700; opacity:.9; }
+  .tvbody { flex:1; display:grid; grid-template-columns: 1.15fr .85fr; gap:0; min-height:0; }
+  /* Llamando ahora */
+  .llamando { padding: 22px 26px; display:flex; flex-direction:column; min-height:0; }
+  .col-title { margin:0 0 12px; font-size: 20px; text-transform:uppercase; letter-spacing:2px; }
+  .llamando .col-title { color: var(--accent); }
+  .calls { overflow:hidden; }
+  .call {
+    background:#13234d; border:1px solid #24386e; border-radius: 16px;
+    padding: 18px 22px; margin-bottom: 12px; display:flex; align-items:center; justify-content:space-between;
+    animation: pop .4s ease;
+  }
+  .call.nuevo { box-shadow: 0 0 0 3px var(--accent); }
+  .call .izq { min-width:0; }
+  .call .cod { font-size: 46px; font-weight: 900; line-height:1; }
+  .call .nom { font-size: 22px; font-weight:700; color:#cfe0ff; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .call .vent { text-align:right; padding-left:12px; }
+  .call .vent .lbl { font-size: 13px; opacity:.7; text-transform:uppercase; letter-spacing:1px; }
+  .call .vent .num { font-size: 50px; font-weight: 900; color: var(--accent); line-height:1; }
+  .pref-tag { display:inline-block; background:var(--accent); color:#3a2c00; font-weight:800; font-size:12px; padding:2px 8px; border-radius:999px; margin-left:8px; vertical-align:middle; }
+  .vacio { opacity:.5; font-size:18px; margin-top: 16px; }
+  /* Siguientes */
+  .siguientes { background:#0d1c40; padding: 22px 26px; min-height:0; display:flex; flex-direction:column; }
+  .siguientes .col-title { color:#9db4e8; }
+  .lista { overflow:hidden; }
+  .row { display:flex; align-items:center; gap:14px; padding: 10px 12px; border-bottom:1px solid #1c2c52; }
+  .row .rcod { font-size: 28px; font-weight: 900; min-width: 110px; }
+  .row .rnom { font-size: 20px; color:#cfe0ff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .row.pref .rcod { color: var(--accent); }
+  /* Ventanillas (tira inferior) */
+  .vents-bar { background:#0a1733; padding: 16px 26px 22px; display:flex; gap:14px; flex-wrap:wrap; border-top:1px solid #1c2c52; }
+  .vchip { flex:1; min-width:150px; background:#13234d; border-radius:16px; padding:16px 14px; display:flex; flex-direction:column; align-items:center; gap:6px; }
+  .vchip .vn { font-weight:800; font-size:18px; opacity:.9; }
+  .vchip .vt { font-weight:900; font-size:38px; line-height:1; }
+  .vchip .vs { font-size:14px; font-weight:700; padding:5px 14px; border-radius:999px; }
+  .s-LIBRE { background:#14532d; color:#86efac; }
+  .s-LLAMANDO { background:#78350f; color:#fde68a; }
+  .s-OCUPADA { background:#7f1d1d; color:#fecaca; }
+  .s-PAUSA, .s-CERRADA { background:#334155; color:#cbd5e1; }
+  @keyframes pop { from { transform: scale(.96); opacity:.4; } to { transform: scale(1); opacity:1; } }
+{% endblock %}
+{% block body %}
+<div class="tv">
+  <div class="tvhead">
+    <div class="muni">MUNICIPALIDAD JLBR · Atención al Contribuyente</div>
+    <div class="reloj" id="reloj">--:--</div>
+  </div>
+  <div class="tvbody">
+    <div class="llamando">
+      <h2 class="col-title">🔔 Llamando ahora</h2>
+      <div class="calls" id="calls"></div>
+      <div class="vacio" id="vacioCalls" style="display:none;">Esperando llamadas…</div>
+    </div>
+    <div class="siguientes">
+      <h2 class="col-title">Siguientes</h2>
+      <div class="lista" id="lista"></div>
+      <div class="vacio" id="vacioLista" style="display:none;">No hay turnos en espera.</div>
+    </div>
+  </div>
+  <div class="vents-bar" id="vents"></div>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+  function tick() {
+    const d = new Date();
+    document.getElementById('reloj').textContent =
+      String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  }
+  tick(); setInterval(tick, 10000);
+
+  function beep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      o.start(); o.stop(ctx.currentTime + 0.5);
+    } catch (e) {}
+  }
+  // Cola de anuncios: se reproducen UNO A LA VEZ (nunca se cruzan, aunque dos
+  // ventanilleros llamen al mismo tiempo), y cada anuncio se repite 2 veces.
+  const colaAnuncios = [];
+  let reproduciendo = false;
+
+  function encolarAnuncio(codigo, nombre, vent) {
+    colaAnuncios.push({ codigo, nombre, vent });
+    procesarCola();
+  }
+
+  function procesarCola() {
+    if (reproduciendo || colaAnuncios.length === 0) return;
+    reproduciendo = true;
+    const a = colaAnuncios.shift();
+    beep();
+    hablar(a, () => hablar(a, () => {       // 2 veces
+      reproduciendo = false;
+      setTimeout(procesarCola, 350);        // pausa antes del siguiente
+    }));
+  }
+
+  function hablar(a, onEnd) {
+    try {
+      const quien = a.nombre && a.nombre !== '—' ? (', ' + a.nombre) : '';
+      const u = new SpeechSynthesisUtterance(
+        `Turno ${a.codigo.split('-').join(' ')}${quien}, ventanilla ${a.vent}`);
+      u.lang = 'es-PE'; u.rate = 0.95;
+      u.onend = onEnd; u.onerror = onEnd;
+      speechSynthesis.speak(u);
+    } catch (e) { onEnd(); }
+  }
+
+  // ventanilla -> ultima firma "codigo|actualizado" ya anunciada. Dispara si
+  // cambia el codigo (Llamar siguiente) O el timestamp (Rellamar).
+  let ultimaSig = {};
+  let primera = true;
+
+  async function refrescar() {
+    let data;
+    try { data = await (await fetch("{% url 'colas_tv_estado' %}")).json(); }
+    catch (e) { return; }
+
+    // Llamando ahora
+    const cont = document.getElementById('calls');
+    cont.innerHTML = '';
+    const llamando = data.llamando || [];
+    document.getElementById('vacioCalls').style.display = llamando.length ? 'none' : 'block';
+    llamando.forEach(c => {
+      const sig = c.codigo + '|' + c.actualizado;
+      const esNuevo = ultimaSig[c.ventanilla] !== sig;
+      const div = document.createElement('div');
+      div.className = 'call' + (esNuevo ? ' nuevo' : '');
+      div.innerHTML =
+        `<div class="izq">
+           <div class="cod">${c.codigo}${c.prioritario ? '<span class="pref-tag">PREF</span>' : ''}</div>
+           <div class="nom">${c.nombre || '—'}</div>
+         </div>
+         <div class="vent"><div class="lbl">Ventanilla</div><div class="num">${c.ventanilla}</div></div>`;
+      cont.appendChild(div);
+      if (esNuevo && !primera) encolarAnuncio(c.codigo, c.nombre, c.ventanilla);
+      ultimaSig[c.ventanilla] = sig;
+    });
+    primera = false;
+
+    // Siguientes (en espera)
+    const lista = document.getElementById('lista');
+    lista.innerHTML = '';
+    const espera = data.en_espera || [];
+    document.getElementById('vacioLista').style.display = espera.length ? 'none' : 'block';
+    espera.forEach(t => {
+      const div = document.createElement('div');
+      div.className = 'row' + (t.prioritario ? ' pref' : '');
+      div.innerHTML =
+        `<div class="rcod">${t.codigo}${t.prioritario ? ' ★' : ''}</div>
+         <div class="rnom">${t.nombre || '—'}</div>`;
+      lista.appendChild(div);
+    });
+
+    // Tira de ventanillas
+    const vents = document.getElementById('vents');
+    vents.innerHTML = '';
+    (data.ventanillas || []).forEach(v => {
+      const div = document.createElement('div');
+      div.className = 'vchip';
+      div.innerHTML =
+        `<div class="vn">${v.nombre}</div>
+         <div class="vt">${v.turno || '—'}</div>
+         <div class="vs s-${v.estado}">${v.estado_label}</div>`;
+      vents.appendChild(div);
+    });
+  }
+
+  refrescar();
+  setInterval(refrescar, 2500);
+</script>
+{% endblock %}

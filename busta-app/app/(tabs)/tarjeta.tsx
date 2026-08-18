@@ -71,12 +71,16 @@ export default function TarjetaScreen() {
   };
 
   const alDia = estadoMuni?.estado_busta_card === 'AL_DIA';
-  const puedeEmitir = alDia;
-  // La tarjeta es valida solo si BD dice vigente (activa, NO bloqueada, NO
-  // vencida) Y ademas SIAP la reporta al dia. Asi respetamos tanto los
-  // bloqueos/vencimientos de la base como la deuda en tiempo real.
+  const vencida = !!tarjeta && estaVencida(tarjeta.fecha_vencimiento);
+  // Valida solo si BD dice vigente (activa, NO bloqueada, NO vencida) Y al dia.
   const tarjetaValida = !!tarjeta && tarjeta.vigente && alDia;
-  const tarjetaInvalidada = !!tarjeta && !tarjetaValida;
+  // Flujo de emitir/renovar: sin tarjeta, o tarjeta VENCIDA (nuevo ejercicio).
+  const enFlujoEmision = !tarjeta || vencida;
+  const esRenovacion = !!tarjeta && vencida;
+  const puedeEmitir = alDia && enFlujoEmision;
+  // Bloqueada: hay tarjeta, NO vencida, pero no es valida (deuda en un año
+  // vigente o bloqueo administrativo). No se re-emite: se reactiva al pagar.
+  const tarjetaBloqueada = !!tarjeta && !vencida && !tarjetaValida;
 
   return (
     <View style={{ flex: 1, backgroundColor: MunicipalityColors.surface }}>
@@ -97,14 +101,19 @@ export default function TarjetaScreen() {
         ListHeaderComponent={
           loading ? null : tarjetaValida ? (
             <TarjetaVisual tarjeta={tarjeta!} ciudadano={ciudadano} />
-          ) : tarjetaInvalidada ? (
+          ) : tarjetaBloqueada ? (
             <TarjetaBloqueada tarjeta={tarjeta!} estadoMuni={estadoMuni} alDia={alDia} />
           ) : (
             <MuniCard style={{ gap: Spacing.md }}>
-              <Text style={styles.titleCard}>Aun no tienes tarjeta ciudadana</Text>
+              <Text style={styles.titleCard}>
+                {esRenovacion ? 'Tu tarjeta venció' : 'Aun no tienes tarjeta ciudadana'}
+              </Text>
               <Text style={styles.muted}>
-                Emite tu tarjeta digital para acceder gratuitamente a parques, bibliotecas,
-                talleres y mas beneficios del distrito.
+                {esRenovacion
+                  ? 'Tu BustaCard venció al cerrar el año. Si estás al día con tus ' +
+                    'tributos, renuévala para este año.'
+                  : 'Emite tu tarjeta digital para acceder gratuitamente a parques, ' +
+                    'bibliotecas, talleres y mas beneficios del distrito.'}
               </Text>
               {estadoMuni ? (
                 <View style={styles.estadoBox}>
@@ -133,7 +142,13 @@ export default function TarjetaScreen() {
                 </View>
               ) : null}
               <MuniButton
-                label={puedeEmitir ? 'Emitir mi tarjeta' : 'No disponible'}
+                label={
+                  !puedeEmitir
+                    ? 'No disponible'
+                    : esRenovacion
+                      ? 'Renovar mi tarjeta'
+                      : 'Emitir mi tarjeta'
+                }
                 onPress={emitir}
                 loading={emitting}
                 disabled={!puedeEmitir}

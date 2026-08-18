@@ -60,11 +60,13 @@ def _codigo_y_vencimiento(dni: str, cntrcod: int) -> tuple[str, datetime.date]:
     """
     Devuelve (codigo, fecha_vencimiento) para la card.
 
-    Si el contribuyente ya tiene un Ciudadano con TarjetaCiudadana emitida,
-    reusa su codigo y vencimiento (consistencia con el app). Si no, genera un
-    codigo deterministico desde el DNI y vence el 31 de diciembre del año en
-    curso (la BustaCard certifica estar al dia en el ejercicio).
+    La BustaCard SIEMPRE vence el 31 de diciembre del año en curso (certifica
+    estar al dia en el ejercicio). Si el contribuyente ya tiene un Ciudadano
+    con TarjetaCiudadana, reusa su codigo (consistencia con el app), pero el
+    vencimiento se recalcula al año actual.
     """
+    fin_anio = datetime.date(timezone.localdate().year, 12, 31)
+
     if Ciudadano is not None and dni:
         tarjeta = (
             TarjetaCiudadana.objects.filter(ciudadano__dni=dni)
@@ -72,11 +74,10 @@ def _codigo_y_vencimiento(dni: str, cntrcod: int) -> tuple[str, datetime.date]:
             .first()
         )
         if tarjeta:
-            return tarjeta.codigo, tarjeta.fecha_vencimiento
+            return tarjeta.codigo, fin_anio
 
     semilla = f"{dni}-{cntrcod}".encode("utf-8")
     codigo = "JLBR-" + hashlib.sha1(semilla).hexdigest()[:8].upper()
-    fin_anio = datetime.date(timezone.localdate().year, 12, 31)
     return codigo, fin_anio
 
 

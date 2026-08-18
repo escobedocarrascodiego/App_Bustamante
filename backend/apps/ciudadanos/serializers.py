@@ -126,6 +126,40 @@ def _existe_en_contribuyentes(dni: str) -> bool:
     )
 
 
+def _datos_desde_contribuyentes(dni: str) -> dict | None:
+    """
+    Datos canonicos del padron TRIBUTARIO (CONTRIBUYENTES). Se usa para
+    enriquecer el registro cuando el DNI NO esta en Propietarios (MPV) pero SI
+    es contribuyente. Sin esto, esa persona quedaba registrada con el DNI como
+    nombre. Devuelve None si el DNI no esta en CONTRIBUYENTES.
+    """
+    if not dni:
+        return None
+    c = (
+        Contribuyentes.objects.using("muni_db")
+        .filter(cntrnumdoc=dni.strip(), cntranu=" ")
+        .first()
+    )
+    if not c:
+        return None
+    nombres = " ".join(
+        p for p in [(c.cntrprinom or "").strip(), (c.cntrsegnon or "").strip()] if p
+    )
+    # Fallback: si no hay nombres estructurados, parteamos el nombre completo
+    # (CntrNom suele venir "APELLIDOS NOMBRES").
+    if not nombres and (c.cntrnom or "").strip():
+        nombres = (c.cntrnom or "").strip()
+    return {
+        "nombres": nombres or dni,
+        "apellido_paterno": (c.cntrapepat or "").strip(),
+        "apellido_materno": (c.cntrapemat or "").strip(),
+        "email": (c.cntrmail or "").strip().lower(),
+        "celular": (c.cntrcelnum or "").strip()[:9],
+        "direccion": (c.cntrdireclar or c.cntrdirec or "").strip()[:200],
+        "cntr_cod": c.cntrcod,
+    }
+
+
 def _sync_propietario_a_ciudadano(
     prop: Propietarios, ciudadano: Ciudadano
 ) -> Ciudadano:
@@ -134,12 +168,11 @@ def _sync_propietario_a_ciudadano(
     y los pisa en el Ciudadano local. Tambien resuelve cntr_cod.
     """
     nombres, pat, mat = _split_nombres(prop)
-    contribuyente = (
-        Contribuyentes.objects.using("muni_db")
-        .filter(cntrnumdoc=ciudadano.dni, cntranu=" ")
-        .only("cntrcod")
-        .first()
-    )
+    # Segunda fuente: padron TRIBUTARIO (CONTRIBUYENTES). Doble verificacion:
+    # la usamos para resolver el cntr_cod Y para rellenar lo que Propietarios
+    # no traiga (nombre, apellidos, direccion). Propietarios sigue mandando
+    # cuando tiene dato; CONTRIBUYENTES solo cubre los huecos.
+    contrib = _datos_desde_contribuyentes(ciudadano.dni) or {}
 
     prop_email = (prop.email_pro or "").strip().lower()
     prop_celular = (prop.tel_pro or "").strip()[:9]
@@ -162,14 +195,25 @@ def _sync_propietario_a_ciudadano(
     # nuevo correo y este si sobreescribira al que el ciudadano habia escrito
     # localmente — que es justo lo que queremos: la fuente de verdad es MPV.
     cambios = {
-        "nombres": prop_nombres or ciudadano.nombres or ciudadano.dni,
-        "apellido_paterno": pat or ciudadano.apellido_paterno,
-        "apellido_materno": mat or ciudadano.apellido_materno,
-        "email": prop_email or ciudadano.email,
-        "celular": prop_celular or ciudadano.celular,
-        "direccion": prop_direccion or ciudadano.direccion,
+        "nombres": (
+            prop_nombres
+            or contrib.get("nombres")
+            or ciudadano.nombres
+            or ciudadano.dni
+        ),
+        "apellido_paterno": (
+            pat or contrib.get("apellido_paterno") or ciudadano.apellido_paterno
+        ),
+        "apellido_materno": (
+            mat or contrib.get("apellido_materno") or ciudadano.apellido_materno
+        ),
+        "email": prop_email or contrib.get("email") or ciudadano.email,
+        "celular": prop_celular or contrib.get("celular") or ciudadano.celular,
+        "direccion": (
+            prop_direccion or contrib.get("direccion") or ciudadano.direccion
+        ),
         "cod_pro": prop.cod_pro,
-        "cntr_cod": contribuyente.cntrcod if contribuyente else ciudadano.cntr_cod,
+        "cntr_cod": contrib.get("cntr_cod") or ciudadano.cntr_cod,
         "verificado": _registrado_en_mpv(prop),
         "fecha_ultima_sync": timezone.now(),
     }
@@ -545,6 +589,7 @@ class RegisterOmitidoSerializer(serializers.Serializer):
         # Datos por defecto para el get_or_create. Si tenemos prop usamos su
         # informacion, si no usamos lo que mando el frontend (puede venir
         # vacio si el ciudadano si estaba en Contribuyentes).
+        datos_contrib = None
         if prop:
             nombres, pat, mat = _split_nombres(prop)
             nombres_default = nombres or prop.nom_pro or dni
@@ -554,12 +599,36 @@ class RegisterOmitidoSerializer(serializers.Serializer):
             celular = (prop.tel_pro or "").strip()[:9]
             direccion = (prop.dir_rep or prop.cal_pro or "").strip()[:200]
         else:
-            nombres_default = (attrs.get("nombres") or dni).strip() or dni
-            ap_paterno = (attrs.get("apellido_paterno") or "").strip()
-            ap_materno = (attrs.get("apellido_materno") or "").strip()
-            email = (attrs.get("email") or "").strip().lower()
-            celular = (attrs.get("celular") or "").strip()[:9]
-            direccion = (attrs.get("direccion") or "").strip()[:200]
+            # No esta en Propietarios. Antes de caer a lo que mando el frontend
+            # (que puede venir VACIO si el DNI estaba en Contribuyentes y por eso
+            # no se pidio el formulario), consultamos el padron TRIBUTARIO. Asi
+            # no se registra a un contribuyente con su DNI como nombre.
+            datos_contrib = _datos_desde_contribuyentes(dni)
+            if datos_contrib:
+                nombres_default = datos_contrib["nombres"] or dni
+                ap_paterno = datos_contrib["apellido_paterno"]
+                ap_materno = datos_contrib["apellido_materno"]
+                email = (
+                    datos_contrib["email"]
+                    or (attrs.get("email") or "").strip().lower()
+                )
+                celular = (
+                    datos_contrib["celular"]
+                    or (attrs.get("celular") or "").strip()[:9]
+                )
+                direccion = (
+                    datos_contrib["direccion"]
+                    or (attrs.get("direccion") or "").strip()[:200]
+                )
+            else:
+                # Datos escritos a mano. Los nombres SIEMPRE en MAYUSCULAS para
+                # mantener el padron uniforme (igual que Propietarios/CONTRIB).
+                nombres_default = (attrs.get("nombres") or "").strip().upper() or dni
+                ap_paterno = (attrs.get("apellido_paterno") or "").strip().upper()
+                ap_materno = (attrs.get("apellido_materno") or "").strip().upper()
+                email = (attrs.get("email") or "").strip().lower()
+                celular = (attrs.get("celular") or "").strip()[:9]
+                direccion = (attrs.get("direccion") or "").strip().upper()[:200]
 
         with transaction.atomic(using="default"):
             ciudadano, created = Ciudadano.objects.get_or_create(
@@ -579,7 +648,10 @@ class RegisterOmitidoSerializer(serializers.Serializer):
             # a medio camino y vuelve a intentar).
             if not created and not prop:
                 cambios_perfil = {}
-                if not (ciudadano.nombres or "").strip() and nombres_default:
+                # "nombre vacio" o "nombre == DNI" (sintoma del bug previo) se
+                # consideran faltantes y se corrigen con el dato del padron.
+                nombre_actual = (ciudadano.nombres or "").strip()
+                if (not nombre_actual or nombre_actual == dni) and nombres_default:
                     cambios_perfil["nombres"] = nombres_default
                 if not (ciudadano.apellido_paterno or "").strip() and ap_paterno:
                     cambios_perfil["apellido_paterno"] = ap_paterno
@@ -616,8 +688,14 @@ class RegisterOmitidoSerializer(serializers.Serializer):
                 ciudadano.verificado = False
                 ciudadano.save(update_fields=["verificado"])
             else:
+                cambios_finales = ["verificado"]
                 ciudadano.verificado = False
-                ciudadano.save(update_fields=["verificado"])
+                # Si vino del padron tributario, cacheamos su cntr_cod para que
+                # deuda/tarjeta lo resuelvan sin depender del fallback por DNI.
+                if datos_contrib and datos_contrib.get("cntr_cod"):
+                    ciudadano.cntr_cod = datos_contrib["cntr_cod"]
+                    cambios_finales.append("cntr_cod")
+                ciudadano.save(update_fields=cambios_finales)
 
         return _emitir_tokens(ciudadano)
 

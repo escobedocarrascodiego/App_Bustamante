@@ -423,3 +423,41 @@ export type ChatbotEnviarMensajeResponse = {
 export type ChatbotHistorialResponse = {
   mensajes: MensajeChat[];
 };
+
+// ----- Gestor de turnos / colas -----
+
+export type ColaServicio = {
+  id: number;
+  nombre: string;
+  en_espera: number;
+  tiempo_estimado_min: number;
+};
+
+export type EstadoColasResponse = {
+  colas: ColaServicio[];
+};
+
+export type EstadoTurno =
+  | 'RESERVADO'
+  | 'EN_ESPERA'
+  | 'LLAMADO'
+  | 'EN_ATENCION'
+  | 'ATENDIDO'
+  | 'AUSENTE'
+  | 'DERIVADO'
+  | 'CANCELADO';
+
+export type MiTurno = {
+  codigo: string;
+  servicio: string;
+  servicio_id: number;
+  estado: EstadoTurno;
+  estado_label: string;
+  prioritario: boolean;
+  ventanilla: number | null;
+  personas_adelante: number | null;
+};
+
+export type MiTurnoResponse = {
+  turno: MiTurno | null;
+};

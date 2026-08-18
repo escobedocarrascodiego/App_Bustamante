@@ -1,6 +1,5 @@
 import secrets
 import uuid
-from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
@@ -60,7 +59,9 @@ class TarjetaCiudadana(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.pk and not self.fecha_vencimiento:
-            self.fecha_vencimiento = (timezone.now() + timedelta(days=365)).date()
+            # La BustaCard vence el ULTIMO DIA del año en que se emite, no un
+            # año exacto. Si se saca el 30/12/2026, igual vence 31/12/2026.
+            self.fecha_vencimiento = timezone.localdate().replace(month=12, day=31)
         super().save(*args, **kwargs)
 
     def __str__(self):

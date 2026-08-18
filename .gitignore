@@ -130,6 +130,13 @@ busta-app/.metro-health-check*
 .yarn/install-state.gz
 .pnp.*
 
+# Reportes / exportaciones con DATOS REALES (usuarios y permisos del SIAP,
+# nombres de personal). Se generan localmente y NUNCA se suben al repo.
+reportes_siap/
+*.xlsx
+*.csv
+!**/fixtures/*.csv
+
 # misc
 *.orig.*
 app-example/

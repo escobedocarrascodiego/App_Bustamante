@@ -1,9 +1,14 @@
+from django.utils import timezone
 from rest_framework import permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.deudas.services import EstadoBustaCard, comprobar_deuda
+from apps.deudas.services import (
+    EstadoBustaCard,
+    comprobar_deuda,
+    obtener_cntrcod_usuario,
+)
 
 from .models import Beneficio, TarjetaCiudadana, UsoBeneficio
 from .serializers import BeneficioSerializer, TarjetaSerializer, UsoBeneficioSerializer
@@ -26,7 +31,7 @@ def sincronizar_bloqueo_por_deuda(user, tarjeta):
 
     Devuelve la verificacion de deuda (o None si no se pudo calcular).
     """
-    cntrcod = getattr(user, "cntr_cod", None)
+    cntrcod = obtener_cntrcod_usuario(user)
     if not cntrcod:
         return None
 
@@ -73,13 +78,29 @@ class TarjetaView(APIView):
         return Response(TarjetaSerializer(tarjeta).data)
 
     def post(self, request):
-        if hasattr(request.user, "tarjeta"):
+        """
+        Emite o RENUEVA la tarjeta:
+          - Sin tarjeta -> emite una nueva.
+          - Tarjeta VENCIDA (paso el año) -> la renueva para el año actual,
+            siempre que el contribuyente este al dia.
+          - Tarjeta vigente -> no se re-emite (ya tiene una valida).
+        """
+        tarjeta = getattr(request.user, "tarjeta", None)
+        hoy = timezone.localdate()
+
+        # Si ya tiene una tarjeta y NO esta vencida, no procede re-emitir.
+        # (Si esta bloqueada por deuda en un año vigente, se reactiva sola al
+        # pagar via sincronizar_bloqueo_por_deuda — no se re-emite.)
+        if tarjeta and tarjeta.fecha_vencimiento >= hoy:
             return Response(
-                {"detail": "Ya cuenta con tarjeta ciudadana."},
+                {"detail": "Ya cuentas con una tarjeta vigente para este año."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        cntrcod = request.user.cntr_cod
+        # Resolvemos el cntr_cod igual que la consulta de deuda (con fallback
+        # por DNI), para no rechazar a quien SI esta en el padron pero aun no
+        # tiene el cntr_cod cacheado en su perfil.
+        cntrcod = obtener_cntrcod_usuario(request.user)
         if not cntrcod:
             return Response(
                 {
@@ -98,10 +119,30 @@ class TarjetaView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Sincronizar flag en ciudadano
+        # Sincronizar flags en el ciudadano (cacheamos el cntr_cod resuelto).
+        cambios = []
+        if request.user.cntr_cod != cntrcod:
+            request.user.cntr_cod = cntrcod
+            cambios.append("cntr_cod")
         if not request.user.es_propietario:
             request.user.es_propietario = True
-            request.user.save(update_fields=["es_propietario"])
+            cambios.append("es_propietario")
+        if cambios:
+            request.user.save(update_fields=cambios)
+
+        if tarjeta:
+            # RENOVACION: la tarjeta vencida se reactiva para el ejercicio
+            # actual (mismo codigo, nueva emision y vencimiento, desbloqueada).
+            tarjeta.fecha_emision = timezone.now()
+            tarjeta.fecha_vencimiento = hoy.replace(month=12, day=31)
+            tarjeta.activa = True
+            tarjeta.bloqueada = False
+            tarjeta.motivo_bloqueo = ""
+            tarjeta.save(update_fields=[
+                "fecha_emision", "fecha_vencimiento",
+                "activa", "bloqueada", "motivo_bloqueo",
+            ])
+            return Response(TarjetaSerializer(tarjeta).data, status=status.HTTP_200_OK)
 
         tarjeta = TarjetaCiudadana.objects.create(ciudadano=request.user)
         return Response(TarjetaSerializer(tarjeta).data, status=status.HTTP_201_CREATED)

@@ -60,6 +60,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="tramites/[id]" options={{ title: 'Detalle de expediente' }} />
             <Stack.Screen name="tramites/nuevo" options={{ title: 'Nuevo tramite' }} />
+            <Stack.Screen name="turnos" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
             <Stack.Screen
               name="chat"
