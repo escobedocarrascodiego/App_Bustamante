@@ -1,5 +1,7 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, router, useSegments } from 'expo-router';
+// Desde SDK 56 expo-router ya no es compatible con @react-navigation/*: trae
+// su propia copia y la reexporta por este subpath.
+import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
@@ -22,7 +24,9 @@ function AuthGate() {
     if (__DEV__) console.log('[AuthGate] status=', status, 'segments=', segments);
     if (status === 'loading') return;
     const inAuthGroup = segments[0] === '(auth)';
-    const sinRuta = segments.length === 0;
+    // `segments` viene tipado como tupla no vacia, pero en el primer render
+    // puede llegar vacio de verdad. El cast preserva esa guarda en runtime.
+    const sinRuta = (segments as readonly string[]).length === 0;
 
     if (status === 'guest' && !inAuthGroup) {
       if (__DEV__) console.log('[AuthGate] redirect -> /(auth)/login');

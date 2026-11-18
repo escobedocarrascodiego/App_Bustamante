@@ -77,6 +77,8 @@ WSGI_APPLICATION = "config.wsgi.application"
 _MSSQL_DRIVER = config("MSSQL_DRIVER", default="ODBC Driver 13 for SQL Server")
 _MSSQL_USER = config("MSSQL_USER", default="")
 _MSSQL_PASSWORD = config("MSSQL_PASSWORD", default="")
+_MSSQL_USER_SIAP = config("MSQL_USER_SIAP", default="")
+_MSSQL_PASSWORD_SIAP = config("MSSQL_PASSWORD_SIAP", default="")
 _MSSQL_PORT = config("MSSQL_PORT", default="1433")
 
 DATABASES = {
@@ -92,8 +94,8 @@ DATABASES = {
     "muni_db": {
         "ENGINE": "mssql",
         "NAME": config("DB_MUNI_NAME", default="MuniJLByR"),
-        "USER": _MSSQL_USER,
-        "PASSWORD": _MSSQL_PASSWORD,
+        "USER": _MSSQL_USER_SIAP,
+        "PASSWORD": _MSSQL_PASSWORD_SIAP,
         "HOST": config("DB_MUNI_HOST", default="localhost"),
         "PORT": _MSSQL_PORT,
         "OPTIONS": {"driver": _MSSQL_DRIVER},
@@ -108,6 +110,7 @@ DATABASES = {
         "OPTIONS": {"driver": _MSSQL_DRIVER},
     },
 }
+
 
 DATABASE_ROUTERS = ["config.db_router.MultiDBRouter"]
 

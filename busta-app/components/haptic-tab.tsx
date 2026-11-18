@@ -1,7 +1,12 @@
-import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
-import { PlatformPressable } from '@react-navigation/elements';
 import * as Haptics from 'expo-haptics';
+import type { BottomTabBarButtonProps } from 'expo-router/js-tabs';
+import { PlatformPressable } from 'expo-router/react-navigation';
 
+/**
+ * Desde SDK 56 expo-router trae su propia copia de react-navigation y ya no es
+ * compatible con los paquetes @react-navigation/* sueltos. La API en runtime es
+ * la misma; solo cambia de donde se importa.
+ */
 export function HapticTab(props: BottomTabBarButtonProps) {
   return (
     <PlatformPressable

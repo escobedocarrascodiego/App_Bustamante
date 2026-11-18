@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
+import type { ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
@@ -9,7 +10,7 @@ import { MunicipalityColors } from '@/constants/theme';
 type TabIconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 function tabIcon(name: TabIconName) {
-  return ({ color, size }: { color: string; size: number }) => (
+  return ({ color, size }: { color: ColorValue; size: number }) => (
     <MaterialCommunityIcons name={name} size={size} color={color} />
   );
 }

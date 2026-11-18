@@ -24,6 +24,53 @@ export type ApiEnvironment = {
   url: string;
 };
 
+function firstString(...candidates: unknown[]): string | null {
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.length > 0) return c;
+  }
+  return null;
+}
+
+/**
+ * Host donde corre el Metro bundler, es decir la PC del desarrollador. Expo lo
+ * inyecta en runtime via `hostUri` / `debuggerHost`, asi que refleja la IP real
+ * del equipo en la red actual.
+ *
+ * Devuelve null en builds standalone (no hay Metro) y cuando Metro corre en el
+ * mismo equipo que la app (web / simulador), donde ese host no sirve para que
+ * un dispositivo externo llegue al backend.
+ */
+function getMetroHost(): string | null {
+  const hostUri = firstString(
+    Constants.expoConfig?.hostUri,
+    Constants.expoGoConfig?.debuggerHost,
+  );
+  if (!hostUri) return null;
+
+  const host = hostUri.split(':')[0];
+  if (!host || host === 'localhost' || host === '127.0.0.1') return null;
+  return host;
+}
+
+/**
+ * URL del backend corriendo en la PC del desarrollador. Se deriva del host de
+ * Metro en lugar de hardcodear una IP, asi sigue sola a la red en la que este
+ * el equipo (Ethernet, Wi-Fi, otro local) sin tocar codigo.
+ *
+ * Para que funcione desde un celular fisico hacen falta dos cosas del lado del
+ * backend: que escuche en todas las interfaces (`runserver 0.0.0.0:8000`) y que
+ * el firewall de Windows permita el puerto al python del venv.
+ */
+function resolveDevLocalUrl(): string {
+  const host = getMetroHost();
+  if (host) return `http://${host}:${API_PORT_FALLBACK}${API_PATH}`;
+
+  // Sin host de Metro utilizable: el emulador de Android llega al equipo
+  // anfitrion por 10.0.2.2; web y iOS simulador comparten localhost.
+  if (Platform.OS === 'android') return `http://10.0.2.2:${API_PORT_FALLBACK}${API_PATH}`;
+  return `http://localhost:${API_PORT_FALLBACK}${API_PATH}`;
+}
+
 /**
  * Entornos predefinidos que se muestran en el selector del menu de desarrolladores.
  * `custom` se reserva para una URL escrita a mano.
@@ -32,8 +79,8 @@ export const API_ENVIRONMENTS: readonly ApiEnvironment[] = [
   {
     id: 'dev-local',
     label: 'Dev local',
-    description: 'PC del desarrollador en la misma red Wi-Fi.',
-    url: 'http://192.168.5.154:8000/api/v1',
+    description: 'PC del desarrollador (IP detectada del bundler Metro).',
+    url: resolveDevLocalUrl(),
   },
   {
     id: 'server-lan',
@@ -49,31 +96,11 @@ export const API_ENVIRONMENTS: readonly ApiEnvironment[] = [
   },
 ] as const;
 
-function firstString(...candidates: unknown[]): string | null {
-  for (const c of candidates) {
-    if (typeof c === 'string' && c.length > 0) return c;
-  }
-  return null;
-}
-
 function resolveDefaultApiBase(): string {
   const fromExtra = firstString(Constants.expoConfig?.extra?.apiBaseUrl);
   if (fromExtra) return fromExtra;
 
-  const hostUri = firstString(
-    Constants.expoConfig?.hostUri,
-    Constants.expoGoConfig?.debuggerHost,
-  );
-
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      return `http://${host}:${API_PORT_FALLBACK}${API_PATH}`;
-    }
-  }
-
-  if (Platform.OS === 'android') return `http://10.0.2.2:${API_PORT_FALLBACK}${API_PATH}`;
-  return `http://localhost:${API_PORT_FALLBACK}${API_PATH}`;
+  return resolveDevLocalUrl();
 }
 
 const DEFAULT_API_BASE_URL = resolveDefaultApiBase();

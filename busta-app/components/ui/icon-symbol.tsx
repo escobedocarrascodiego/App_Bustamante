@@ -5,7 +5,12 @@ import { SymbolWeight, SymbolViewProps } from 'expo-symbols';
 import { ComponentProps } from 'react';
 import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
 
-type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
+// En SDK 57 `name` admite tambien un objeto por plataforma ({ ios, android,
+// web }), que no sirve como clave de indice. Nos quedamos con la variante
+// string, que es la que realmente mapeamos a Material Icons.
+type SFSymbolName = Extract<SymbolViewProps['name'], string>;
+
+type IconMapping = Record<SFSymbolName, ComponentProps<typeof MaterialIcons>['name']>;
 type IconSymbolName = keyof typeof MAPPING;
 
 /**
